@@ -4,8 +4,10 @@
 
 pub mod model;
 pub mod netcdf;
+pub mod zarr;
 
 pub use model::{
     AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceFormat, VarSummary, VersionInfo,
 };
 pub use netcdf::{summarize_netcdf, MetaError};
+pub use zarr::summarize_zarr;

@@ -30,6 +30,25 @@ pub enum MetaError {
         #[source]
         source: ::netcdf::Error,
     },
+    /// I/O failure while reading a Zarr store's metadata files directly off
+    /// disk (e.g. `.zgroup`, `zarr.json`).
+    #[error("failed to read {path}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// A Zarr metadata file's contents were not valid JSON.
+    #[error("failed to parse JSON in {path}: {source}")]
+    Json {
+        path: PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A Zarr metadata file was valid JSON but did not have the shape this
+    /// reader expects (missing/malformed fields, unrecognized store layout).
+    #[error("invalid Zarr metadata in {path}: {message}")]
+    Invalid { path: PathBuf, message: String },
 }
 
 /// Summarize the structure of a NetCDF or HDF5 file at `path`.
