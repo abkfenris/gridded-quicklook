@@ -1,0 +1,8 @@
+# Pins the toolchain and components for plain rustup-managed environments
+# (a dev without mise, editors invoking cargo directly). NOTE: under mise
+# this file is inert -- mise exports RUSTUP_TOOLCHAIN, which takes
+# precedence over toolchain files -- so components must ALSO be listed on
+# mise.toml's rust tool (they are). Keep the two pins in sync.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

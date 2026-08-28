@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: mise run lint
+        run: mise run lint
+
+      - name: mise run test
+        run: mise run test
+
+      - name: prek run --all-files
+        run: prek run --all-files
+
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: cargo build --release -p gridded-ffi
+        run: cargo build --release -p gridded-ffi
+
+      # TODO(milestone-1c): generate and build the Xcode project once the
+      # apple/ QuickLook app extension exists.
+      # - name: mise run xcodeproj
+      #   run: mise run xcodeproj
+      # - name: mise run build-appex
+      #   run: mise run build-appex

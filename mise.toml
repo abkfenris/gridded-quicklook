@@ -1,0 +1,50 @@
+[tools]
+rust = { version = "1.97", components = "rustfmt,clippy" }
+cmake = "3.31"
+uv = "latest"
+xcodegen = "latest"
+prek = "latest"
+
+[tasks.test]
+description = "Run the Rust workspace test suite (regenerates fixtures first)"
+# Fixture data is generated, not committed -- tests read fixtures/data from
+# disk, so it must exist (and be current) before cargo test runs.
+depends = ["fixtures"]
+run = "cargo test --workspace"
+
+[tasks.lint]
+description = "Check formatting and run clippy across the workspace"
+run = "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.fixtures]
+description = "(Re)generate test fixtures used by the test suite"
+run = "fixtures/generate.py"
+# Source/output tracking: mise skips this task when the generated output is
+# newer than the generator inputs, so `mise run test` only pays the
+# regeneration cost after generate.py (or its pinned deps) change.
+sources = ["fixtures/generate.py"]
+outputs = ["fixtures/data/**/*", "fixtures/reference/*"]
+
+[tasks.sync-xarray-assets]
+description = "Sync xarray's HTML repr CSS/SVG assets (fetched from a pinned GitHub tag) into crates/gridded-html"
+run = "./crates/gridded-html/sync_xarray_assets.py"
+
+[tasks.hooks]
+description = "Run all pre-commit hooks against the full repo"
+run = "prek run --all-files"
+
+[tasks.xcodeproj]
+description = "Generate the Xcode project from apple/project.yml"
+run = "xcodegen generate --spec apple/project.yml"
+
+[tasks.build-appex]
+description = "Build the QuickLook app extension (Debug)"
+run = "xcodebuild -project apple/GriddedQuickLook.xcodeproj -scheme GriddedQuickLook -configuration Debug build"
+
+[tasks.install-dev]
+description = "Install a development build of the QuickLook extension locally"
+run = "scripts/install-dev.sh"
+
+[tasks.preview]
+description = "Reset and reload the QuickLook preview daemon"
+run = "qlmanage -p"
