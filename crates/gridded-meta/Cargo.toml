@@ -10,3 +10,8 @@ name = "gridded_meta"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+netcdf = { version = "0.12", features = ["static"] }
+thiserror = "2"
+
+[dev-dependencies]
+insta = { version = "1", features = ["json"] }
