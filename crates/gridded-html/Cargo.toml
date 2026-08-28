@@ -7,3 +7,9 @@ repository.workspace = true
 
 [lib]
 name = "gridded_html"
+
+[dependencies]
+gridded-meta = { workspace = true }
+
+[dev-dependencies]
+insta = "1"
