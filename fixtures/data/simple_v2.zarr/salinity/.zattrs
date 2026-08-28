@@ -1,0 +1,9 @@
+{
+  "units": "psu",
+  "long_name": "Sea Water Salinity",
+  "_ARRAY_DIMENSIONS": [
+    "time",
+    "x",
+    "y"
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "units": "degC",
+  "long_name": "Sea Water Temperature",
+  "_ARRAY_DIMENSIONS": [
+    "time",
+    "x",
+    "y"
+  ]
+}

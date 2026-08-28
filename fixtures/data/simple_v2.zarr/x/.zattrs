@@ -1,0 +1,7 @@
+{
+  "units": "km",
+  "long_name": "Cross-shore distance",
+  "_ARRAY_DIMENSIONS": [
+    "x"
+  ]
+}

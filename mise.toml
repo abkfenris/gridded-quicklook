@@ -1,0 +1,37 @@
+[tools]
+rust = "1.97"
+cmake = "3.31"
+uv = "latest"
+xcodegen = "latest"
+
+[tasks.test]
+description = "Run the Rust workspace test suite"
+run = "cargo test --workspace"
+
+[tasks.lint]
+description = "Check formatting and run clippy across the workspace"
+run = "cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.fixtures]
+description = "(Re)generate test fixtures used by the test suite"
+run = "uv run --project fixtures python fixtures/generate.py"
+
+[tasks.hooks]
+description = "Run all pre-commit hooks against the full repo"
+run = "prek run --all-files"
+
+[tasks.xcodeproj]
+description = "Generate the Xcode project from apple/project.yml"
+run = "xcodegen generate --spec apple/project.yml"
+
+[tasks.build-appex]
+description = "Build the QuickLook app extension (Debug)"
+run = "xcodebuild -project apple/GriddedQuickLook.xcodeproj -scheme GriddedQuickLook -configuration Debug build"
+
+[tasks.install-dev]
+description = "Install a development build of the QuickLook extension locally"
+run = "scripts/install-dev.sh"
+
+[tasks.preview]
+description = "Reset and reload the QuickLook preview daemon"
+run = "qlmanage -p"

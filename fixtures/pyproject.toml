@@ -1,0 +1,14 @@
+[project]
+name = "gridded-quicklook-fixtures"
+version = "0.1.0"
+description = "Generates deterministic test fixtures for gridded-quicklook"
+requires-python = ">=3.12"
+dependencies = [
+    "xarray",
+    "netcdf4",
+    "zarr",
+    "icechunk",
+]
+
+[tool.uv]
+package = false
