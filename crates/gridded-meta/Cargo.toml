@@ -7,3 +7,6 @@ repository.workspace = true
 
 [lib]
 name = "gridded_meta"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
