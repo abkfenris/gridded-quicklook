@@ -38,9 +38,19 @@ jobs:
       - name: cargo build --release -p gridded-ffi
         run: cargo build --release -p gridded-ffi
 
-      # TODO(milestone-1c): generate and build the Xcode project once the
-      # apple/ QuickLook app extension exists.
-      # - name: mise run xcodeproj
-      #   run: mise run xcodeproj
-      # - name: mise run build-appex
-      #   run: mise run build-appex
+      - name: mise run xcodeproj
+        run: mise run xcodeproj
+
+      - name: xcodebuild (unsigned)
+        # CI runners have no code signing identity or provisioning
+        # profile, so signing is disabled entirely rather than attempting
+        # (and failing) an ad-hoc signature. This still exercises the full
+        # compile + link of the app and app-extension targets, including
+        # linking against libgridded_ffi.a.
+        run: |
+          xcodebuild \
+            -project apple/GriddedQuickLook.xcodeproj \
+            -scheme GriddedQuickLook \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
