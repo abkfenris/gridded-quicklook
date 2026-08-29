@@ -16,7 +16,10 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
 use gridded_html::render_page;
-use gridded_meta::summarize_netcdf;
+use gridded_meta::{
+    is_icechunk_repo, summarize_icechunk, summarize_netcdf, summarize_zarr, DatasetSummary,
+    MetaError,
+};
 
 /// A fixed, dynamic-content-free fallback used only if we somehow fail to
 /// build even the ordinary error card (e.g. because the underlying message
@@ -27,6 +30,11 @@ const FALLBACK_ERROR_HTML: &str = "<!doctype html><html><head><meta charset=\"ut
 /// File extensions (lowercased, without the leading dot) that we currently
 /// route through `gridded-meta`'s NetCDF/HDF5 reader.
 const NETCDF_LIKE_EXTENSIONS: &[&str] = &["nc", "nc4", "cdf", "h5", "hdf5", "he5"];
+
+/// Root-level entries that mark a directory as a Zarr store: a v3 node
+/// document, a v2 group marker, or v2 consolidated metadata. Checked with a
+/// handful of `stat` calls -- never by walking the store.
+const ZARR_ROOT_MARKERS: &[&str] = &["zarr.json", ".zgroup", ".zarray", ".zmetadata"];
 
 /// Renders an HTML QuickLook preview for the file at `path`.
 ///
@@ -91,34 +99,77 @@ fn render_html_inner(path: *const c_char) -> String {
     };
     let path = Path::new(path_str);
 
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase);
+    let summary = if path.is_dir() {
+        match summarize_directory_store(path) {
+            Some(result) => result,
+            None => {
+                return error_card(
+                    "Unsupported folder: not a Zarr store or an Icechunk repository.",
+                )
+            }
+        }
+    } else {
+        match summarize_file(path) {
+            Some(result) => result,
+            None => {
+                return match path.extension().and_then(|e| e.to_str()) {
+                    Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
+                    None => error_card("Unsupported file: no recognizable file extension."),
+                }
+            }
+        }
+    };
 
-    let is_netcdf_like = extension
-        .as_deref()
-        .is_some_and(|e| NETCDF_LIKE_EXTENSIONS.contains(&e));
-
-    if !is_netcdf_like {
-        return match extension {
-            Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
-            None => error_card("Unsupported file: no recognizable file extension."),
-        };
-    }
-
-    let summary = match summarize_netcdf(path) {
+    let summary = match summary {
         Ok(summary) => summary,
         Err(err) => return error_card(&format!("{err}")),
     };
 
-    let file_size = std::fs::metadata(path).ok().map(|m| m.len());
+    // Directory stores deliberately report no size: totalling one would mean
+    // recursively stat-ing every chunk file, which for a real store can be
+    // millions of entries. The renderer omits the size when it is `None`.
+    let file_size = if path.is_dir() {
+        None
+    } else {
+        std::fs::metadata(path).ok().map(|m| m.len())
+    };
     let source_name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(path_str);
 
     render_page(&summary, source_name, file_size)
+}
+
+/// Routes a regular file by extension. `None` means "no reader claims this
+/// extension", which the caller turns into an "unsupported file type" card.
+fn summarize_file(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)?;
+
+    if NETCDF_LIKE_EXTENSIONS.contains(&extension.as_str()) {
+        return Some(summarize_netcdf(path));
+    }
+    None
+}
+
+/// Routes a directory by what it contains rather than by its extension:
+/// Finder shows `.zarr`/`.icechunk` bundles as packages, but a store may
+/// equally well be named anything at all. `None` means the directory is
+/// neither an Icechunk repo nor a Zarr store.
+fn summarize_directory_store(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
+    if is_icechunk_repo(path) {
+        return Some(summarize_icechunk(path));
+    }
+    if ZARR_ROOT_MARKERS
+        .iter()
+        .any(|marker| path.join(marker).is_file())
+    {
+        return Some(summarize_zarr(path));
+    }
+    None
 }
 
 /// Converts a Rust `String` into an owned, NUL-terminated C string pointer,
@@ -227,6 +278,47 @@ mod tests {
             !html.contains("gq-error"),
             "a valid fixture must not render an error card"
         );
+    }
+
+    #[test]
+    fn renders_a_zarr_directory_store() {
+        let html = render(&fixture_path("simple_v3.zarr"));
+        assert!(
+            html.contains("xr-wrap"),
+            "expected xarray-style repr markup for a Zarr store, got: {html}"
+        );
+        assert!(
+            !html.contains("gq-error"),
+            "a valid Zarr store must not render an error card"
+        );
+    }
+
+    #[test]
+    fn renders_an_icechunk_repository_with_its_version_history() {
+        let html = render(&fixture_path("icechunk_repo"));
+        assert!(
+            html.contains("xr-wrap"),
+            "expected xarray-style repr markup for an Icechunk repo, got: {html}"
+        );
+        assert!(
+            !html.contains("gq-error"),
+            "a valid Icechunk repo must not render an error card"
+        );
+        assert!(
+            html.contains("initial data"),
+            "expected the version-history card to list the first commit message"
+        );
+        assert!(
+            html.contains("update global attrs"),
+            "expected the version-history card to list the latest commit message"
+        );
+    }
+
+    #[test]
+    fn unrecognized_directory_renders_an_error_card() {
+        let html = render(&fixture_path(".."));
+        assert!(html.contains("gq-error"));
+        assert!(html.contains("Unsupported folder"));
     }
 
     #[test]

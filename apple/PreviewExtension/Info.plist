@@ -44,6 +44,8 @@
 			<array>
 				<string>dev.gridded.netcdf</string>
 				<string>dev.gridded.hdf5</string>
+				<string>dev.gridded.zarr</string>
+				<string>dev.gridded.icechunk</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>

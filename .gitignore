@@ -75,3 +75,6 @@ apple/*.xcodeproj
 
 # xcodebuild/DerivedData output (see scripts/install-dev.sh)
 /build
+.DS_Store
+fixtures/data/
+fixtures/reference/

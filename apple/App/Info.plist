@@ -79,5 +79,58 @@
 			</dict>
 		</dict>
 	</array>
+	<!--
+	  Zarr stores and Icechunk repositories are *directories*, not files, and
+	  no one else has minted a UTI for either. These two are therefore
+	  declared as *exported*: this project defines the types, so it is their
+	  owner of record.
+
+	  Both conform to com.apple.package (a directory the Finder presents as a
+	  single opaque item, which is what makes a `.zarr`/`.icechunk` folder
+	  previewable at all) and to public.folder (so anything that reasons
+	  about directories still treats them correctly). The tag specification
+	  binds them to the conventional directory-name extensions; a store
+	  without one of those extensions stays an ordinary folder to the system,
+	  even though the Rust reader would happily preview it.
+	-->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridded.zarr</string>
+			<key>UTTypeDescription</key>
+			<string>Zarr Store</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+				<string>public.folder</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>zarr</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridded.icechunk</string>
+			<key>UTTypeDescription</key>
+			<string>Icechunk Repository</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+				<string>public.folder</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>icechunk</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

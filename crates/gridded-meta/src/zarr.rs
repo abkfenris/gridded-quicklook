@@ -99,7 +99,7 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
 /// or if it is named in some sibling variable's `coordinates` attribute),
 /// derives the group's dims from the union of its direct variables' own
 /// dims, and sorts everything deterministically by name.
-fn build_group_summary(
+pub(crate) fn build_group_summary(
     name: String,
     attrs: &serde_json::Map<String, Value>,
     vars: Vec<VarSummary>,
@@ -288,30 +288,46 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>, MetaError> {
 // ---------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
-struct ZarrV3Node {
-    node_type: String,
+pub(crate) struct ZarrV3Node {
+    pub(crate) node_type: String,
     #[serde(default)]
-    attributes: serde_json::Map<String, Value>,
+    pub(crate) attributes: serde_json::Map<String, Value>,
     #[serde(default)]
-    shape: Option<Vec<u64>>,
+    pub(crate) shape: Option<Vec<u64>>,
     #[serde(default)]
-    data_type: Option<Value>,
+    pub(crate) data_type: Option<Value>,
     #[serde(default)]
-    chunk_grid: Option<ZarrV3ChunkGrid>,
+    pub(crate) chunk_grid: Option<ZarrV3ChunkGrid>,
     #[serde(default)]
-    dimension_names: Option<Vec<Option<String>>>,
+    pub(crate) dimension_names: Option<Vec<Option<String>>>,
+}
+
+impl ZarrV3Node {
+    /// An attribute-less group node, used as a stand-in for a store whose
+    /// root group carries no metadata of its own.
+    #[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
+    pub(crate) fn empty_group() -> Self {
+        Self {
+            node_type: "group".to_owned(),
+            attributes: serde_json::Map::new(),
+            shape: None,
+            data_type: None,
+            chunk_grid: None,
+            dimension_names: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
-struct ZarrV3ChunkGrid {
+pub(crate) struct ZarrV3ChunkGrid {
     #[serde(default)]
-    configuration: ZarrV3ChunkGridConfig,
+    pub(crate) configuration: ZarrV3ChunkGridConfig,
 }
 
 #[derive(Debug, Default, Deserialize)]
-struct ZarrV3ChunkGridConfig {
+pub(crate) struct ZarrV3ChunkGridConfig {
     #[serde(default)]
-    chunk_shape: Option<Vec<u64>>,
+    pub(crate) chunk_shape: Option<Vec<u64>>,
 }
 
 fn walk_v3_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
@@ -347,7 +363,7 @@ fn walk_v3_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
     Ok(build_group_summary(name, &own.attributes, vars, children))
 }
 
-fn v3_var_summary(
+pub(crate) fn v3_var_summary(
     name: String,
     node: &ZarrV3Node,
     node_path: &Path,

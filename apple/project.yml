@@ -17,7 +17,18 @@
 # netcdf-src, so no libcurl is pulled in at all. A hand link test
 # (`clang main.c -Lapple/../target/release -lgridded_ffi`) confirmed that
 # `-lgridded_ffi` alone resolves cleanly with no extra `-lz`/-lcurl/-lnetcdf/
-# -lhdf5 flags needed -- only the ordinary macOS system libraries.
+# -lhdf5 flags needed -- only the ordinary macOS system libraries. Since the
+# Icechunk reader was added the one exception is `-framework
+# CoreFoundation` (see OTHER_LDFLAGS below); zstd, flatbuffers and the rest
+# of icechunk's native code are absorbed into the staticlib as before.
+#
+# UTI note: the type declarations themselves live in the two Info.plist
+# files referenced below (App/Info.plist declares them, PreviewExtension/
+# Info.plist matches against them in QLSupportedContentTypes), not in this
+# spec -- xcodegen copies INFOPLIST_FILE through verbatim. The app imports
+# dev.gridded.netcdf/.hdf5 (file types) and exports dev.gridded.zarr/
+# .icechunk (directory stores, conforming to com.apple.package so the
+# Finder treats them as previewable single items).
 ########################################################################
 
 name: GriddedQuickLook
@@ -78,6 +89,15 @@ targets:
           - $(SRCROOT)/../target/release
         OTHER_LDFLAGS:
           - -lgridded_ffi
+          # Required since the Icechunk reader was added: icechunk pulls in
+          # chrono -> iana-time-zone, which resolves the system time zone
+          # through CoreFoundation (CFTimeZoneCopySystem and friends).
+          # Verified by hand-linking the release staticlib -- without this
+          # flag the link fails with undefined _CFTimeZone*/_CFString*
+          # symbols; with it, `-lgridded_ffi` still needs no other extra
+          # libraries.
+          - -framework
+          - CoreFoundation
         SKIP_INSTALL: YES
     entitlements:
       path: PreviewExtension/PreviewExtension.entitlements
