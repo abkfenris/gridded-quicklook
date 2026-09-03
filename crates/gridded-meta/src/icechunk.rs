@@ -45,14 +45,15 @@ mod enabled {
     use std::collections::BTreeMap;
     use std::path::Path;
 
-    use icechunk::format::snapshot::{NodeData, NodeSnapshot};
+    use icechunk::format::snapshot::NodeSnapshot;
     use icechunk::format::{Path as IcePath, SnapshotId};
     use icechunk::repository::VersionInfo as IceVersionInfo;
     use icechunk::Repository;
+    use zarrs_metadata::v3::NodeMetadataV3;
 
     use crate::model::{DatasetSummary, GroupSummary, SourceFormat, VersionInfo};
     use crate::netcdf::MetaError;
-    use crate::zarr::{build_group_summary, v3_var_summary, ZarrV3Node};
+    use crate::zarr::{build_group_summary, empty_v3_group_node, v3_node_attrs, v3_var_summary};
 
     /// The branch previewed for a repo. Icechunk has no configurable default
     /// branch (unlike git), so `main` is the only tip worth resolving.
@@ -189,7 +190,7 @@ mod enabled {
             Some(node) => parse_node(path, node)?,
             // A repo whose root group was never written has no root node;
             // present it as an empty, attribute-less root group.
-            None => ZarrV3Node::empty_group(),
+            None => empty_v3_group_node(),
         };
         build_group(path, "", String::new(), &root_meta, &by_path)
     }
@@ -198,7 +199,7 @@ mod enabled {
         repo_path: &Path,
         node_path: &str,
         name: String,
-        meta: &ZarrV3Node,
+        meta: &NodeMetadataV3,
         by_path: &BTreeMap<String, &NodeSnapshot>,
     ) -> Result<GroupSummary, MetaError> {
         let prefix = if node_path.is_empty() {
@@ -217,13 +218,13 @@ mod enabled {
                 continue;
             }
             let child_meta = parse_node(repo_path, child)?;
-            match child.node_data {
-                NodeData::Array { .. } => vars.push(v3_var_summary(
+            match &child_meta {
+                NodeMetadataV3::Array(array) => vars.push(v3_var_summary(
                     rest.to_owned(),
-                    &child_meta,
+                    array,
                     Path::new(child_path),
                 )?),
-                NodeData::Group => children.push(build_group(
+                NodeMetadataV3::Group(_) => children.push(build_group(
                     repo_path,
                     child_path,
                     rest.to_owned(),
@@ -233,12 +234,17 @@ mod enabled {
             }
         }
 
-        Ok(build_group_summary(name, &meta.attributes, vars, children))
+        Ok(build_group_summary(
+            name,
+            v3_node_attrs(meta),
+            vars,
+            children,
+        ))
     }
 
     /// A node's `user_data` is the Zarr v3 `zarr.json` document verbatim, so
     /// it deserializes straight into the shared v3 node model.
-    fn parse_node(repo_path: &Path, node: &NodeSnapshot) -> Result<ZarrV3Node, MetaError> {
+    fn parse_node(repo_path: &Path, node: &NodeSnapshot) -> Result<NodeMetadataV3, MetaError> {
         serde_json::from_slice(&node.user_data).map_err(|source| MetaError::Json {
             path: repo_path.join(node.path.to_string().trim_start_matches('/')),
             source,

@@ -12,6 +12,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::Value;
+use zarrs_metadata::v2::{ArrayMetadataV2, DataTypeMetadataV2};
+use zarrs_metadata::v3::{ArrayMetadataV3, GroupMetadataV3, MetadataV3, NodeMetadataV3};
 
 use crate::model::{AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceFormat, VarSummary};
 use crate::netcdf::MetaError;
@@ -34,18 +36,12 @@ use crate::netcdf::MetaError;
 pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     let v3_root = path.join("zarr.json");
     if v3_root.is_file() {
-        let node: ZarrV3Node = read_json_as(&v3_root)?;
-        let root = match node.node_type.as_str() {
-            "group" => walk_v3_group(path, String::new())?,
-            "array" => {
-                let var = v3_var_summary(String::new(), &node, &v3_root)?;
-                build_group_summary(String::new(), &node.attributes, vec![var], Vec::new())
-            }
-            other => {
-                return Err(MetaError::Invalid {
-                    path: v3_root,
-                    message: format!("unexpected node_type {other:?} at store root"),
-                });
+        let node: NodeMetadataV3 = read_json_as(&v3_root)?;
+        let root = match node {
+            NodeMetadataV3::Group(_) => walk_v3_group(path, String::new())?,
+            NodeMetadataV3::Array(array) => {
+                let var = v3_var_summary(String::new(), &array, &v3_root)?;
+                build_group_summary(String::new(), &array.attributes, vec![var], Vec::new())
             }
         };
         return Ok(DatasetSummary {
@@ -163,17 +159,24 @@ pub(crate) fn build_group_summary(
 /// dropped here since it's surfaced as `VarSummary::dims` instead, matching
 /// how xarray itself hides it from a variable's displayed attributes.
 ///
-/// `serde_json::Map` (without the `preserve_order` feature, which this
-/// crate does not enable) is backed by a `BTreeMap`, so iteration is
-/// already alphabetical — giving deterministic attr ordering for free.
+/// Entries are explicitly sorted by key for deterministic output.
+/// `serde_json::Map` is normally `BTreeMap`-backed (alphabetical iteration
+/// for free), but `zarrs_metadata` pulls in serde_json's `preserve_order`
+/// feature, which — via Cargo's workspace-wide feature unification —
+/// switches every `serde_json::Map` in this build over to an
+/// insertion-order-preserving `IndexMap`, so ordering can no longer be
+/// assumed and must be done here instead.
 fn json_object_to_attrs(map: &serde_json::Map<String, Value>) -> Vec<(String, AttrValue)> {
-    map.iter()
+    let mut attrs: Vec<(String, AttrValue)> = map
+        .iter()
         .filter(|(k, _)| k.as_str() != "_ARRAY_DIMENSIONS")
         .map(|(k, v)| {
             let attr = decode_base64_float_attr(k, v).unwrap_or_else(|| json_value_to_attr(v));
             (k.clone(), attr)
         })
-        .collect()
+        .collect();
+    attrs.sort_by(|a, b| a.0.cmp(&b.0));
+    attrs
 }
 
 /// zarr-python's V3 JSON encoder writes non-finite float attribute values
@@ -287,51 +290,24 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>, MetaError> {
 // Zarr v3
 // ---------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct ZarrV3Node {
-    pub(crate) node_type: String,
-    #[serde(default)]
-    pub(crate) attributes: serde_json::Map<String, Value>,
-    #[serde(default)]
-    pub(crate) shape: Option<Vec<u64>>,
-    #[serde(default)]
-    pub(crate) data_type: Option<Value>,
-    #[serde(default)]
-    pub(crate) chunk_grid: Option<ZarrV3ChunkGrid>,
-    #[serde(default)]
-    pub(crate) dimension_names: Option<Vec<Option<String>>>,
-}
-
-impl ZarrV3Node {
-    /// An attribute-less group node, used as a stand-in for a store whose
-    /// root group carries no metadata of its own.
-    #[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
-    pub(crate) fn empty_group() -> Self {
-        Self {
-            node_type: "group".to_owned(),
-            attributes: serde_json::Map::new(),
-            shape: None,
-            data_type: None,
-            chunk_grid: None,
-            dimension_names: None,
-        }
+/// Extracts a node's `attributes` map regardless of whether it's an array
+/// or a group node — both carry one, just on different underlying structs.
+pub(crate) fn v3_node_attrs(node: &NodeMetadataV3) -> &serde_json::Map<String, Value> {
+    match node {
+        NodeMetadataV3::Array(array) => &array.attributes,
+        NodeMetadataV3::Group(group) => &group.attributes,
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct ZarrV3ChunkGrid {
-    #[serde(default)]
-    pub(crate) configuration: ZarrV3ChunkGridConfig,
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct ZarrV3ChunkGridConfig {
-    #[serde(default)]
-    pub(crate) chunk_shape: Option<Vec<u64>>,
+/// An attribute-less group node, used as a stand-in for a store whose root
+/// group carries no metadata of its own.
+#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
+pub(crate) fn empty_v3_group_node() -> NodeMetadataV3 {
+    NodeMetadataV3::Group(GroupMetadataV3::default())
 }
 
 fn walk_v3_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
-    let own: ZarrV3Node = read_json_as(&dir.join("zarr.json"))?;
+    let own: NodeMetadataV3 = read_json_as(&dir.join("zarr.json"))?;
 
     let mut vars = Vec::new();
     let mut children = Vec::new();
@@ -347,41 +323,32 @@ fn walk_v3_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
             continue;
         }
         let child_name = entry.file_name().to_string_lossy().into_owned();
-        let node: ZarrV3Node = read_json_as(&node_json)?;
-        match node.node_type.as_str() {
-            "array" => vars.push(v3_var_summary(child_name, &node, &node_json)?),
-            "group" => children.push(walk_v3_group(&child_path, child_name)?),
-            other => {
-                return Err(MetaError::Invalid {
-                    path: node_json,
-                    message: format!("unexpected node_type {other:?}"),
-                });
+        let node: NodeMetadataV3 = read_json_as(&node_json)?;
+        match node {
+            NodeMetadataV3::Array(array) => {
+                vars.push(v3_var_summary(child_name, &array, &node_json)?);
             }
+            NodeMetadataV3::Group(_) => children.push(walk_v3_group(&child_path, child_name)?),
         }
     }
 
-    Ok(build_group_summary(name, &own.attributes, vars, children))
+    Ok(build_group_summary(
+        name,
+        v3_node_attrs(&own),
+        vars,
+        children,
+    ))
 }
 
 pub(crate) fn v3_var_summary(
     name: String,
-    node: &ZarrV3Node,
+    array: &ArrayMetadataV3,
     node_path: &Path,
 ) -> Result<VarSummary, MetaError> {
-    let shape = node.shape.clone().ok_or_else(|| MetaError::Invalid {
-        path: node_path.to_path_buf(),
-        message: "array node is missing \"shape\"".to_owned(),
-    })?;
-    let data_type = node.data_type.as_ref().ok_or_else(|| MetaError::Invalid {
-        path: node_path.to_path_buf(),
-        message: "array node is missing \"data_type\"".to_owned(),
-    })?;
-    let dtype = v3_dtype_string(data_type);
-    let chunks = node
-        .chunk_grid
-        .as_ref()
-        .and_then(|g| g.configuration.chunk_shape.clone());
-    let dims = resolve_v3_dim_names(&node.dimension_names, shape.len());
+    let shape = array.shape.clone();
+    let dtype = v3_dtype_string(&array.data_type);
+    let chunks = v3_chunk_shape(&array.chunk_grid, node_path)?;
+    let dims = resolve_v3_dim_names(&array.dimension_names, shape.len());
 
     Ok(VarSummary {
         name,
@@ -389,7 +356,7 @@ pub(crate) fn v3_var_summary(
         dims,
         shape,
         chunks,
-        attrs: json_object_to_attrs(&node.attributes),
+        attrs: json_object_to_attrs(&array.attributes),
         preview: None,
     })
 }
@@ -399,14 +366,38 @@ pub(crate) fn v3_var_summary(
 /// match numpy's dtype names verbatim; `"string"` (Zarr v3's variable-length
 /// UTF-8 type) has no fixed-width numpy equivalent and is reported as
 /// `object`, matching how xarray displays such arrays. Anything else
-/// (structured/extension data types) is passed through as its raw JSON so
-/// no information is silently dropped.
-fn v3_dtype_string(data_type: &Value) -> String {
-    match data_type {
-        Value::String(s) if s == "string" => "object".to_owned(),
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
+/// (structured/extension data types) is reported by its extension name only:
+/// `MetadataV3` doesn't expose its raw JSON, only `name()`/`configuration()`.
+fn v3_dtype_string(data_type: &MetadataV3) -> String {
+    match data_type.name() {
+        "string" => "object".to_owned(),
+        other => other.to_owned(),
     }
+}
+
+/// Extracts the chunk shape from a v3 array's `chunk_grid` metadata. Only
+/// the `"regular"` chunk grid (the only kind Zarr v3 currently defines) has
+/// a `chunk_shape`; anything else yields `None` rather than an error, since
+/// this reader never needs to interpret chunk layout beyond display.
+fn v3_chunk_shape(
+    chunk_grid: &MetadataV3,
+    node_path: &Path,
+) -> Result<Option<Vec<u64>>, MetaError> {
+    if chunk_grid.name() != "regular" {
+        return Ok(None);
+    }
+    let Some(config) = chunk_grid.configuration() else {
+        return Ok(None);
+    };
+    let Some(value) = config.get("chunk_shape") else {
+        return Ok(None);
+    };
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|source| MetaError::Json {
+            path: node_path.to_path_buf(),
+            source,
+        })
 }
 
 /// Resolves a v3 array's per-axis dimension names. `dimension_names` is
@@ -427,14 +418,6 @@ fn resolve_v3_dim_names(names: &Option<Vec<Option<String>>>, ndim: usize) -> Vec
 // ---------------------------------------------------------------------
 // Zarr v2 (walked directly, node by node)
 // ---------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-struct ZarrV2Array {
-    shape: Vec<u64>,
-    #[serde(default)]
-    chunks: Option<Vec<u64>>,
-    dtype: String,
-}
 
 fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
     let attrs = read_json_value_opt(&dir.join(".zattrs"))?
@@ -462,7 +445,7 @@ fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
 }
 
 fn v2_var_summary(name: String, dir: &Path) -> Result<VarSummary, MetaError> {
-    let array: ZarrV2Array = read_json_as(&dir.join(".zarray"))?;
+    let array: ArrayMetadataV2 = read_json_as(&dir.join(".zarray"))?;
     let attrs = read_json_value_opt(&dir.join(".zattrs"))?
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
@@ -471,7 +454,7 @@ fn v2_var_summary(name: String, dir: &Path) -> Result<VarSummary, MetaError> {
 
 fn v2_var_from_parts(
     name: String,
-    array: &ZarrV2Array,
+    array: &ArrayMetadataV2,
     attrs: &serde_json::Map<String, Value>,
 ) -> Result<VarSummary, MetaError> {
     let dims = attrs
@@ -486,13 +469,24 @@ fn v2_var_from_parts(
 
     Ok(VarSummary {
         name,
-        dtype: v2_dtype_string(&array.dtype),
+        dtype: v2_dtype_from_metadata(&array.dtype),
         dims,
         shape: array.shape.clone(),
-        chunks: array.chunks.clone(),
+        chunks: Some(array.chunks.iter().map(|n| n.get()).collect()),
         attrs: json_object_to_attrs(attrs),
         preview: None,
     })
+}
+
+/// Numpy-style dtype string for a Zarr v2 `dtype`. A `Simple` dtype is a
+/// typestring (`<f8`, `|S8`, ...) handled by [`v2_dtype_string`]; a
+/// `Structured` dtype (a list of `[fieldname, datatype, shape?]` entries)
+/// has no single numpy-style name, so it's passed through as its raw JSON.
+fn v2_dtype_from_metadata(dtype: &DataTypeMetadataV2) -> String {
+    match dtype {
+        DataTypeMetadataV2::Simple(s) => v2_dtype_string(s),
+        DataTypeMetadataV2::Structured(_) => dtype.to_string(),
+    }
 }
 
 /// Numpy-style dtype string from a Zarr v2 typestring (e.g. `<f4`, `|S8`,
@@ -540,7 +534,7 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
     let consolidated: ConsolidatedMetadata = read_json_as(&meta_path)?;
 
     let mut group_paths: HashSet<String> = HashSet::new();
-    let mut arrays: HashMap<String, ZarrV2Array> = HashMap::new();
+    let mut arrays: HashMap<String, ArrayMetadataV2> = HashMap::new();
     let mut attrs: HashMap<String, serde_json::Map<String, Value>> = HashMap::new();
 
     for (key, value) in consolidated.metadata {
@@ -553,7 +547,7 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
             ".zarray" => Some(""),
             _ => None,
         }) {
-            let array: ZarrV2Array =
+            let array: ArrayMetadataV2 =
                 serde_json::from_value(value).map_err(|source| MetaError::Json {
                     path: meta_path.clone(),
                     source,
@@ -588,7 +582,7 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
 fn build_v2_consolidated_group(
     node_path: String,
     name: String,
-    arrays: &HashMap<String, ZarrV2Array>,
+    arrays: &HashMap<String, ArrayMetadataV2>,
     attrs: &HashMap<String, serde_json::Map<String, Value>>,
     group_paths: &HashSet<String>,
 ) -> GroupSummary {
