@@ -1,6 +1,5 @@
 ---
-source: crates/gridded-meta/tests/netcdf_snapshots.rs
-assertion_line: 48
+source: crates/gridlook-meta/tests/netcdf_snapshots.rs
 expression: summary
 ---
 {
@@ -133,7 +132,7 @@ expression: summary
     "attrs": [
       [
         "title",
-        "gridded-quicklook simple fixture"
+        "gridlook simple fixture"
       ],
       [
         "institution",
