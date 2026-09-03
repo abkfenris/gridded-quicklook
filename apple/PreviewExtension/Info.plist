@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Gridded QuickLook Preview</string>
+	<string>GridLook Preview</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -42,10 +42,10 @@
 			<true/>
 			<key>QLSupportedContentTypes</key>
 			<array>
-				<string>dev.gridded.netcdf</string>
-				<string>dev.gridded.hdf5</string>
-				<string>dev.gridded.zarr</string>
-				<string>dev.gridded.icechunk</string>
+				<string>dev.gridlook.netcdf</string>
+				<string>dev.gridlook.hdf5</string>
+				<string>dev.gridlook.zarr</string>
+				<string>dev.gridlook.icechunk</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>

@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  GriddedQuickLook
+//  GridLook
 //
 
 import SwiftUI
@@ -16,7 +16,7 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Gridded QuickLook")
+                Text("GridLook")
                     .font(.title)
                     .bold()
                 Text("A QuickLook preview extension for gridded scientific data.")
@@ -37,7 +37,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Label("Open System Settings \u{2192} General \u{2192} Login Items & Extensions", systemImage: "1.circle")
                     Label("Find \"Quick Look\" in the extensions list", systemImage: "2.circle")
-                    Label("Enable \u{201C}Gridded QuickLook Preview\u{201D}", systemImage: "3.circle")
+                    Label("Enable \u{201C}GridLook Preview\u{201D}", systemImage: "3.circle")
                 }
                 .padding(.leading, 4)
             }

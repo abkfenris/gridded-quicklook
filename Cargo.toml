@@ -9,5 +9,5 @@ license = "BSD-3-Clause"
 repository = "https://github.com/abkfenris/gridded-quicklook"
 
 [workspace.dependencies]
-gridded-meta = { path = "crates/gridded-meta" }
-gridded-html = { path = "crates/gridded-html" }
+gridlook-meta = { path = "crates/gridlook-meta" }
+gridlook-html = { path = "crates/gridlook-html" }

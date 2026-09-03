@@ -5,7 +5,7 @@
 //  The QuickLook preview app extension's entry point. This is a
 //  data-based preview: rather than handing QuickLook a file URL to render
 //  itself (`QLPreviewReply(fileURL:)`), we render the HTML ourselves (via
-//  `gridded-ffi`, the Rust core) and hand back the bytes directly.
+//  `gridlook-ffi`, the Rust core) and hand back the bytes directly.
 //
 
 import Foundation
@@ -13,7 +13,7 @@ import OSLog
 import QuickLookUI
 import UniformTypeIdentifiers
 
-private let logger = Logger(subsystem: "dev.gridded.quicklook", category: "preview")
+private let logger = Logger(subsystem: "dev.gridlook.quicklook", category: "preview")
 
 @objc(PreviewProvider)
 final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
@@ -48,12 +48,12 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
         //
         //   return QLPreviewReply(fileURL: someRenderedHTMLFileURL)
         //
-        // We don't use it: gridded-ffi renders straight to an in-memory
+        // We don't use it: gridlook-ffi renders straight to an in-memory
         // string, so there's no intermediate file to hand QuickLook.
     }
 
-    /// Calls into `gridded-ffi`'s C ABI to render `url` as a complete HTML
-    /// document. `gridded_render_html` never fails in the FFI sense -- on
+    /// Calls into `gridlook-ffi`'s C ABI to render `url` as a complete HTML
+    /// document. `gridlook_render_html` never fails in the FFI sense -- on
     /// any error it returns a styled HTML error card instead of a distinct
     /// error code -- so there is no Swift-side error branch to write here.
     private func renderHTML(forFileAt url: URL) -> String {
@@ -61,18 +61,18 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
             guard let fsPath else {
                 return Self.fallbackErrorHTML
             }
-            guard let cString = gridded_render_html(fsPath) else {
+            guard let cString = gridlook_render_html(fsPath) else {
                 return Self.fallbackErrorHTML
             }
-            defer { gridded_free_string(cString) }
+            defer { gridlook_free_string(cString) }
             return String(cString: cString)
         }
     }
 
-    /// Used only if `gridded_render_html` itself returns NULL, which its
+    /// Used only if `gridlook_render_html` itself returns NULL, which its
     /// documented contract says it never does; kept as a last-resort
     /// safety net so a Swift-side surprise still produces *some* preview
     /// rather than a crash or a blank panel.
     private static let fallbackErrorHTML =
-        "<!doctype html><html><body><p>Preview unavailable: gridded-ffi returned no data.</p></body></html>"
+        "<!doctype html><html><body><p>Preview unavailable: gridlook-ffi returned no data.</p></body></html>"
 }

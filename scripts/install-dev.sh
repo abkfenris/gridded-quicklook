@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds and installs a local development build of the Gridded QuickLook
+# Builds and installs a local development build of the GridLook
 # app + preview extension, ad-hoc signed, for the current user.
 #
 # This mirrors the workflow used by rkrug/parquet-spotlight-quicklook and
@@ -18,15 +18,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APPLE_DIR="$ROOT_DIR/apple"
-PROJECT_PATH="$APPLE_DIR/GriddedQuickLook.xcodeproj"
-SCHEME="GriddedQuickLook"
+PROJECT_PATH="$APPLE_DIR/GridLook.xcodeproj"
+SCHEME="GridLook"
 # Release, not Debug: Debug builds use Xcode's debug-dylib mechanism (a
 # stub main executable that loads PreviewExtension.debug.dylib), which
 # does not reliably load outside Xcode's own run harness -- the extension
 # process starts but the principal class never instantiates.
 CONFIGURATION="Release"
 BUILD_DIR="$ROOT_DIR/build"
-APP_NAME="GriddedQuickLook.app"
+APP_NAME="GridLook.app"
 APP_DST="$HOME/Applications/$APP_NAME"
 
 log() { echo "==> $*"; }
@@ -55,8 +55,8 @@ EOF
   fi
 }
 
-log "Building gridded-ffi release staticlib..."
-( cd "$ROOT_DIR" && cargo build --release -p gridded-ffi )
+log "Building gridlook-ffi release staticlib..."
+( cd "$ROOT_DIR" && cargo build --release -p gridlook-ffi )
 
 log "Generating Xcode project (xcodegen)..."
 # xcodegen is mise-managed; in non-interactive shells mise's shims may not be
@@ -127,7 +127,7 @@ Installed: $APP_DST
 
 Finish enabling the extension in:
   System Settings -> General -> Login Items & Extensions -> Quick Look
-  (look for "Gridded QuickLook Preview" and turn it on)
+  (look for "GridLook Preview" and turn it on)
 
 Then select a .nc/.h5 file, a .zarr store, or an .icechunk repo in Finder
 and press Space to preview it. (Directory stores need the .zarr/.icechunk
