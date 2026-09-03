@@ -5,7 +5,8 @@
 //! work. Snapshots are managed with `cargo insta`.
 
 use gridded_meta::model::{
-    AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceFormat, VarSummary, VersionInfo,
+    AttrValue, DatasetSummary, DimInfo, GroupSummary, SnapshotInfo, SourceFormat, VarSummary,
+    VersionInfo,
 };
 
 fn dim(name: &str, size: u64) -> DimInfo {
@@ -185,21 +186,24 @@ fn versioned_dataset() -> DatasetSummary {
     let mut ds = flat_dataset();
     ds.format = SourceFormat::Icechunk;
     ds.version_info = Some(VersionInfo {
-        snapshot_id: "ABCDEF0123456789".to_string(),
         branch: "main".to_string(),
-        message: Some("initial commit".to_string()),
-        wrote_at: Some("2026-08-28T12:00:00Z".to_string()),
-        n_snapshots: 3,
+        truncated: false,
         ancestry: vec![
-            (
-                "ABCDEF0123456789".to_string(),
-                Some("initial commit".to_string()),
-            ),
-            ("0011223344556677".to_string(), None),
-            (
-                "99887766554433221".to_string(),
-                Some("repo created".to_string()),
-            ),
+            SnapshotInfo {
+                id: "ABCDEF0123456789".to_string(),
+                message: Some("initial commit".to_string()),
+                wrote_at: Some("2026-08-28T12:00:00Z".to_string()),
+            },
+            SnapshotInfo {
+                id: "0011223344556677".to_string(),
+                message: None,
+                wrote_at: None,
+            },
+            SnapshotInfo {
+                id: "99887766554433221".to_string(),
+                message: Some("repo created".to_string()),
+                wrote_at: None,
+            },
         ],
     });
     ds

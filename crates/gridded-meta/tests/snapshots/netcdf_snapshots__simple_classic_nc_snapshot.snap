@@ -1,9 +1,10 @@
 ---
-source: crates/gridded-meta/tests/icechunk_snapshots.rs
+source: crates/gridded-meta/tests/netcdf_snapshots.rs
+assertion_line: 48
 expression: summary
 ---
 {
-  "format": "Icechunk",
+  "format": "NetCdf",
   "root": {
     "name": "",
     "dims": [
@@ -26,26 +27,24 @@ expression: summary
     "coords": [
       {
         "name": "time",
-        "dtype": "int64",
+        "dtype": "int32",
         "dims": [
           "time"
         ],
         "shape": [
           4
         ],
-        "chunks": [
-          4
-        ],
         "attrs": [
-          [
-            "calendar",
-            "proleptic_gregorian"
-          ],
           [
             "units",
             "days since 2024-01-01 00:00:00"
+          ],
+          [
+            "calendar",
+            "proleptic_gregorian"
           ]
-        ]
+        ],
+        "preview": "0 1 2 3"
       },
       {
         "name": "x",
@@ -56,23 +55,21 @@ expression: summary
         "shape": [
           3
         ],
-        "chunks": [
-          3
-        ],
         "attrs": [
           [
             "_FillValue",
             null
           ],
           [
-            "long_name",
-            "Cross-shore distance"
-          ],
-          [
             "units",
             "km"
+          ],
+          [
+            "long_name",
+            "Cross-shore distance"
           ]
-        ]
+        ],
+        "preview": "-10.0 0.0 10.0"
       }
     ],
     "data_vars": [
@@ -89,23 +86,18 @@ expression: summary
           3,
           2
         ],
-        "chunks": [
-          4,
-          3,
-          2
-        ],
         "attrs": [
           [
             "_FillValue",
             null
           ],
           [
-            "long_name",
-            "Sea Water Salinity"
-          ],
-          [
             "units",
             "psu"
+          ],
+          [
+            "long_name",
+            "Sea Water Salinity"
           ]
         ]
       },
@@ -122,66 +114,36 @@ expression: summary
           3,
           2
         ],
-        "chunks": [
-          4,
-          3,
-          2
-        ],
         "attrs": [
           [
             "_FillValue",
             null
           ],
           [
-            "long_name",
-            "Sea Water Temperature"
-          ],
-          [
             "units",
             "degC"
+          ],
+          [
+            "long_name",
+            "Sea Water Temperature"
           ]
         ]
       }
     ],
     "attrs": [
       [
-        "conventions",
-        "CF-1.8"
+        "title",
+        "gridded-quicklook simple fixture"
       ],
       [
         "institution",
         "NERACOOS"
       ],
       [
-        "revision_note",
-        "updated global attrs"
-      ],
-      [
-        "title",
-        "gridded-quicklook simple fixture"
+        "conventions",
+        "CF-1.8"
       ]
     ],
     "children": []
-  },
-  "version_info": {
-    "branch": "main",
-    "ancestry": [
-      {
-        "id": "[snapshot-id]",
-        "message": "update global attrs",
-        "wrote_at": "[timestamp]"
-      },
-      {
-        "id": "[snapshot-id]",
-        "message": "initial data",
-        "wrote_at": "[timestamp]"
-      },
-      {
-        "id": "[snapshot-id]",
-        "message": "Repository initialized",
-        "wrote_at": "[timestamp]"
-      }
-    ],
-    "truncated": false
   }
 }

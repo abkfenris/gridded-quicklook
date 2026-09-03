@@ -4,6 +4,8 @@
 //! [`DatasetSummary`]; the HTML renderer consumes this model and never
 //! sees format-specific types.
 
+use std::collections::{BTreeMap, HashSet};
+
 use serde::{Deserialize, Serialize};
 
 /// Which reader produced the summary. Rendered as a format badge.
@@ -42,6 +44,82 @@ pub struct GroupSummary {
     pub children: Vec<GroupSummary>,
 }
 
+impl GroupSummary {
+    /// Builds a [`GroupSummary`] from a flat list of variables and children,
+    /// applying xarray's coordinate-classification heuristic and the
+    /// deterministic-ordering conventions shared by every format reader.
+    ///
+    /// A variable is classified as a coordinate if its name matches one of
+    /// its own dimensions ("dimension coordinate"), or if it is named in
+    /// some sibling variable's `coordinates` attribute within `vars`.
+    /// `coords`, `data_vars`, and `children` are all sorted by name.
+    ///
+    /// `dims` is `Some` for formats with a real group-level dimension
+    /// registry (netCDF), which is used as given (including `is_unlimited`
+    /// flags); it is `None` for formats with no such registry (Zarr,
+    /// Icechunk), in which case the group's dims are derived from the union
+    /// of its variables' own `(name, size)` pairs, with `is_unlimited`
+    /// always `false` — Zarr arrays have no notion of an
+    /// unlimited/appendable dimension distinct from `shape`.
+    pub fn from_parts(
+        name: String,
+        dims: Option<Vec<DimInfo>>,
+        attrs: Vec<(String, AttrValue)>,
+        vars: Vec<VarSummary>,
+        mut children: Vec<GroupSummary>,
+    ) -> Self {
+        let mut coord_names: HashSet<String> = HashSet::new();
+        for var in &vars {
+            if let Some((_, AttrValue::Text(names))) =
+                var.attrs.iter().find(|(k, _)| k == "coordinates")
+            {
+                coord_names.extend(names.split_whitespace().map(str::to_owned));
+            }
+        }
+
+        let mut coords = Vec::new();
+        let mut data_vars = Vec::new();
+        for var in vars {
+            let is_dim_coord = var.dims.contains(&var.name);
+            if is_dim_coord || coord_names.contains(&var.name) {
+                coords.push(var);
+            } else {
+                data_vars.push(var);
+            }
+        }
+        coords.sort_by(|a, b| a.name.cmp(&b.name));
+        data_vars.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let dims = dims.unwrap_or_else(|| {
+            let mut dims_map: BTreeMap<String, u64> = BTreeMap::new();
+            for var in coords.iter().chain(data_vars.iter()) {
+                for (dim_name, size) in var.dims.iter().zip(var.shape.iter()) {
+                    dims_map.entry(dim_name.clone()).or_insert(*size);
+                }
+            }
+            dims_map
+                .into_iter()
+                .map(|(name, size)| DimInfo {
+                    name,
+                    size,
+                    is_unlimited: false,
+                })
+                .collect()
+        });
+
+        children.sort_by(|a, b| a.name.cmp(&b.name));
+
+        GroupSummary {
+            name,
+            dims,
+            coords,
+            data_vars,
+            attrs,
+            children,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DimInfo {
     pub name: String,
@@ -78,18 +156,25 @@ pub enum AttrValue {
     TextList(Vec<String>),
 }
 
-/// Version metadata for an Icechunk repo, scoped to the latest snapshot on
-/// the default branch. Ancestry is ids/messages only.
+/// One snapshot in a version-controlled store's history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VersionInfo {
-    pub snapshot_id: String,
-    pub branch: String,
+pub struct SnapshotInfo {
+    pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-    /// RFC 3339 timestamp of the snapshot.
+    /// RFC 3339 timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrote_at: Option<String>,
-    pub n_snapshots: u64,
-    /// (snapshot id, message) pairs, newest first, including the current one.
-    pub ancestry: Vec<(String, Option<String>)>,
+}
+
+/// Version metadata for an Icechunk repo, scoped to the latest snapshot on
+/// the default branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionInfo {
+    pub branch: String,
+    /// Newest first; the tip snapshot is `ancestry[0]`.
+    pub ancestry: Vec<SnapshotInfo>,
+    /// `true` if the ancestry walk was capped before reaching the repo's
+    /// initial snapshot (see `ANCESTRY_LIMIT` in the Icechunk reader).
+    pub truncated: bool,
 }

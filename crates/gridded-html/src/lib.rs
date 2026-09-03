@@ -8,6 +8,8 @@
 
 mod render;
 
+pub use render::html_escape;
+
 use gridded_meta::model::{DatasetSummary, SourceFormat, VersionInfo};
 
 /// xarray's HTML repr stylesheet, copied verbatim (see
@@ -150,29 +152,39 @@ fn render_version_info(v: &VersionInfo) -> String {
         "<dt>Branch</dt><dd>{}</dd>",
         render::html_escape(&v.branch)
     ));
-    let short_id: String = v.snapshot_id.chars().take(8).collect();
-    s.push_str(&format!(
-        "<dt>Snapshot</dt><dd><code>{}</code></dd>",
-        render::html_escape(&short_id)
-    ));
-    if let Some(msg) = &v.message {
+
+    if let Some(tip) = v.ancestry.first() {
+        let short_id: String = tip.id.chars().take(8).collect();
         s.push_str(&format!(
-            "<dt>Message</dt><dd>{}</dd>",
-            render::html_escape(msg)
+            "<dt>Snapshot</dt><dd><code>{}</code></dd>",
+            render::html_escape(&short_id)
         ));
+        if let Some(msg) = &tip.message {
+            s.push_str(&format!(
+                "<dt>Message</dt><dd>{}</dd>",
+                render::html_escape(msg)
+            ));
+        }
+        if let Some(ts) = &tip.wrote_at {
+            s.push_str(&format!(
+                "<dt>Written</dt><dd>{}</dd>",
+                render::html_escape(ts)
+            ));
+        }
     }
-    if let Some(ts) = &v.wrote_at {
-        s.push_str(&format!(
-            "<dt>Written</dt><dd>{}</dd>",
-            render::html_escape(ts)
-        ));
-    }
-    s.push_str(&format!("<dt>Snapshots</dt><dd>{}</dd>", v.n_snapshots));
+
+    let count = if v.truncated {
+        format!("{}+", v.ancestry.len())
+    } else {
+        v.ancestry.len().to_string()
+    };
+    s.push_str(&format!("<dt>Snapshots</dt><dd>{count}</dd>"));
+
     if !v.ancestry.is_empty() {
         s.push_str("<dt>Ancestry</dt><dd><ol class='gq-ancestry'>");
-        for (id, msg) in &v.ancestry {
-            let short: String = id.chars().take(8).collect();
-            match msg {
+        for entry in &v.ancestry {
+            let short: String = entry.id.chars().take(8).collect();
+            match &entry.message {
                 Some(m) => s.push_str(&format!(
                     "<li><code>{}</code> &mdash; {}</li>",
                     render::html_escape(&short),
@@ -183,6 +195,9 @@ fn render_version_info(v: &VersionInfo) -> String {
                     render::html_escape(&short)
                 )),
             }
+        }
+        if v.truncated {
+            s.push_str("<li>&hellip; (truncated)</li>");
         }
         s.push_str("</ol></dd>");
     }

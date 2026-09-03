@@ -15,8 +15,8 @@ use serde_json::Value;
 use zarrs_metadata::v2::{ArrayMetadataV2, DataTypeMetadataV2};
 use zarrs_metadata::v3::{ArrayMetadataV3, GroupMetadataV3, MetadataV3, NodeMetadataV3};
 
-use crate::model::{AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceFormat, VarSummary};
-use crate::netcdf::MetaError;
+use crate::error::MetaError;
+use crate::model::{AttrValue, DatasetSummary, GroupSummary, SourceFormat, VarSummary};
 
 /// Summarize the structure of a Zarr directory store at `path`.
 ///
@@ -38,9 +38,9 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     if v3_root.is_file() {
         let node: NodeMetadataV3 = read_json_as(&v3_root)?;
         let root = match node {
-            NodeMetadataV3::Group(_) => walk_v3_group(path, String::new())?,
+            NodeMetadataV3::Group(group) => walk_v3_group(path, String::new(), group)?,
             NodeMetadataV3::Array(array) => {
-                let var = v3_var_summary(String::new(), &array, &v3_root)?;
+                let var = v3_var_summary(root_array_name(path), &array, &v3_root)?;
                 build_group_summary(String::new(), &array.attributes, vec![var], Vec::new())
             }
         };
@@ -65,7 +65,7 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     }
 
     if path.join(".zarray").is_file() {
-        let var = v2_var_summary(String::new(), path)?;
+        let var = v2_var_summary(root_array_name(path), path)?;
         let root = build_group_summary(
             String::new(),
             &serde_json::Map::new(),
@@ -86,72 +86,36 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     })
 }
 
+/// Derives a variable name for a store whose *root* is a single array (no
+/// enclosing group), rather than the usual empty string used for a node at
+/// the root path: an array node otherwise has no name of its own to fall
+/// back on, unlike a child array which takes its directory's name.
+///
+/// Uses the store directory's file stem, e.g. `root.zarr` → `root`, matching
+/// how such single-array stores are conventionally named; falls back to
+/// `"array"` when the path has no usable stem (e.g. `/`, `.`, or a name that
+/// is only an extension like `.zarr`).
+fn root_array_name(path: &Path) -> String {
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "array".to_owned())
+}
+
 // ---------------------------------------------------------------------
 // Shared group-building logic (used by both v2 and v3 readers)
 // ---------------------------------------------------------------------
 
-/// Classifies variables into coords/data_vars (xarray's heuristic: a
-/// variable is a coordinate if its name matches one of its own dimensions,
-/// or if it is named in some sibling variable's `coordinates` attribute),
-/// derives the group's dims from the union of its direct variables' own
-/// dims, and sorts everything deterministically by name.
+/// Thin wrapper around [`GroupSummary::from_parts`] for Zarr's JSON-shaped
+/// attributes: Zarr has no group-level dimension registry like netCDF, so
+/// `dims` is always derived (`None`) rather than supplied.
 pub(crate) fn build_group_summary(
     name: String,
     attrs: &serde_json::Map<String, Value>,
     vars: Vec<VarSummary>,
-    mut children: Vec<GroupSummary>,
+    children: Vec<GroupSummary>,
 ) -> GroupSummary {
-    let mut coord_names: HashSet<String> = HashSet::new();
-    for var in &vars {
-        if let Some((_, AttrValue::Text(names))) =
-            var.attrs.iter().find(|(k, _)| k == "coordinates")
-        {
-            coord_names.extend(names.split_whitespace().map(str::to_owned));
-        }
-    }
-
-    let mut coords = Vec::new();
-    let mut data_vars = Vec::new();
-    for var in vars {
-        let is_dim_coord = var.dims.contains(&var.name);
-        if is_dim_coord || coord_names.contains(&var.name) {
-            coords.push(var);
-        } else {
-            data_vars.push(var);
-        }
-    }
-    coords.sort_by(|a, b| a.name.cmp(&b.name));
-    data_vars.sort_by(|a, b| a.name.cmp(&b.name));
-
-    // Zarr has no group-level dimension registry like netCDF; a group's
-    // dims are derived from the union of its direct variables' own
-    // (name, size) pairs. `is_unlimited` is always false: Zarr arrays have
-    // no notion of an unlimited/appendable dimension distinct from `shape`.
-    let mut dims_map: BTreeMap<String, u64> = BTreeMap::new();
-    for var in coords.iter().chain(data_vars.iter()) {
-        for (dim_name, size) in var.dims.iter().zip(var.shape.iter()) {
-            dims_map.entry(dim_name.clone()).or_insert(*size);
-        }
-    }
-    let dims = dims_map
-        .into_iter()
-        .map(|(name, size)| DimInfo {
-            name,
-            size,
-            is_unlimited: false,
-        })
-        .collect();
-
-    children.sort_by(|a, b| a.name.cmp(&b.name));
-
-    GroupSummary {
-        name,
-        dims,
-        coords,
-        data_vars,
-        attrs: json_object_to_attrs(attrs),
-        children,
-    }
+    GroupSummary::from_parts(name, None, json_object_to_attrs(attrs), vars, children)
 }
 
 /// Converts a JSON attributes object into the format-agnostic attr list.
@@ -239,17 +203,6 @@ fn json_value_to_attr(value: &Value) -> AttrValue {
 // JSON file I/O helpers
 // ---------------------------------------------------------------------
 
-fn read_json_value(path: &Path) -> Result<Value, MetaError> {
-    let text = fs::read_to_string(path).map_err(|source| MetaError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    serde_json::from_str(&text).map_err(|source| MetaError::Json {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
 fn read_json_as<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, MetaError> {
     let text = fs::read_to_string(path).map_err(|source| MetaError::Io {
         path: path.to_path_buf(),
@@ -261,14 +214,23 @@ fn read_json_as<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, MetaEr
     })
 }
 
-/// Like [`read_json_value`], but returns `Ok(None)` if the file is simply
+/// Like [`read_json_as`], but returns `Ok(None)` if the file is simply
 /// absent (e.g. an optional `.zattrs`) rather than treating that as an I/O
 /// error.
 fn read_json_value_opt(path: &Path) -> Result<Option<Value>, MetaError> {
     if !path.is_file() {
         return Ok(None);
     }
-    read_json_value(path).map(Some)
+    read_json_as::<Value>(path).map(Some)
+}
+
+/// Reads a v2 node's optional `.zattrs` file, if present, defaulting to an
+/// empty attribute map. Shared by both the direct v2 walker and consolidated
+/// v2 reading paths, which each read a node's attributes this same way.
+fn read_v2_attrs(dir: &Path) -> Result<serde_json::Map<String, Value>, MetaError> {
+    Ok(read_json_value_opt(&dir.join(".zattrs"))?
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default())
 }
 
 fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>, MetaError> {
@@ -292,6 +254,11 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>, MetaError> {
 
 /// Extracts a node's `attributes` map regardless of whether it's an array
 /// or a group node — both carry one, just on different underlying structs.
+///
+/// Since [`walk_v3_group`] now takes an already-narrowed [`GroupMetadataV3`]
+/// (see its doc comment), this is only reached from `icechunk.rs`, which
+/// still deals in the un-narrowed [`NodeMetadataV3`].
+#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
 pub(crate) fn v3_node_attrs(node: &NodeMetadataV3) -> &serde_json::Map<String, Value> {
     match node {
         NodeMetadataV3::Array(array) => &array.attributes,
@@ -306,9 +273,16 @@ pub(crate) fn empty_v3_group_node() -> NodeMetadataV3 {
     NodeMetadataV3::Group(GroupMetadataV3::default())
 }
 
-fn walk_v3_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
-    let own: NodeMetadataV3 = read_json_as(&dir.join("zarr.json"))?;
-
+/// Walks a v3 group's children, given `own` — the group's `zarr.json`
+/// already parsed by the caller (either [`summarize_zarr`] for the root, or
+/// this function itself for a recursive call), so each node's `zarr.json` is
+/// read from disk exactly once rather than being parsed once for type
+/// detection and re-parsed on recursion.
+fn walk_v3_group(
+    dir: &Path,
+    name: String,
+    own: GroupMetadataV3,
+) -> Result<GroupSummary, MetaError> {
     let mut vars = Vec::new();
     let mut children = Vec::new();
     for entry in read_dir_sorted(dir)? {
@@ -328,16 +302,13 @@ fn walk_v3_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
             NodeMetadataV3::Array(array) => {
                 vars.push(v3_var_summary(child_name, &array, &node_json)?);
             }
-            NodeMetadataV3::Group(_) => children.push(walk_v3_group(&child_path, child_name)?),
+            NodeMetadataV3::Group(group) => {
+                children.push(walk_v3_group(&child_path, child_name, group)?);
+            }
         }
     }
 
-    Ok(build_group_summary(
-        name,
-        v3_node_attrs(&own),
-        vars,
-        children,
-    ))
+    Ok(build_group_summary(name, &own.attributes, vars, children))
 }
 
 pub(crate) fn v3_var_summary(
@@ -348,7 +319,7 @@ pub(crate) fn v3_var_summary(
     let shape = array.shape.clone();
     let dtype = v3_dtype_string(&array.data_type);
     let chunks = v3_chunk_shape(&array.chunk_grid, node_path)?;
-    let dims = resolve_v3_dim_names(&array.dimension_names, shape.len());
+    let dims = resolve_dim_names(&array.dimension_names, shape.len());
 
     Ok(VarSummary {
         name,
@@ -400,16 +371,29 @@ fn v3_chunk_shape(
         })
 }
 
-/// Resolves a v3 array's per-axis dimension names. `dimension_names` is
-/// optional in the spec, and even when present individual axes may be
-/// `null`; either case falls back to numpy/xarray's synthetic `dim_{i}`
-/// naming for that axis.
-fn resolve_v3_dim_names(names: &Option<Vec<Option<String>>>, ndim: usize) -> Vec<String> {
+/// Resolves an array's per-axis dimension names against its actual rank
+/// (`ndim`), shared by the Zarr v3 `dimension_names` field and the Zarr v2
+/// `_ARRAY_DIMENSIONS` attribute convention.
+///
+/// `names` is optional to begin with (v3's `dimension_names` may be absent
+/// entirely; v2's `_ARRAY_DIMENSIONS` may be missing or unparsable), and
+/// even when present individual axes may carry no name (v3: `null`; v2: any
+/// non-string entry, which the caller maps to `None`). Either case falls
+/// back to numpy/xarray's synthetic `dim_{i}` naming for that axis. The
+/// result is always exactly `ndim` long: a shorter list is padded with
+/// synthetic names, a longer one (which shouldn't occur for a
+/// spec-conformant store, but has been seen with malformed
+/// `_ARRAY_DIMENSIONS`) is truncated, so it always zips safely against
+/// `shape`.
+fn resolve_dim_names(names: &Option<Vec<Option<String>>>, ndim: usize) -> Vec<String> {
     match names {
-        Some(names) => names
-            .iter()
-            .enumerate()
-            .map(|(i, n)| n.clone().unwrap_or_else(|| format!("dim_{i}")))
+        Some(names) => (0..ndim)
+            .map(|i| {
+                names
+                    .get(i)
+                    .and_then(Option::clone)
+                    .unwrap_or_else(|| format!("dim_{i}"))
+            })
             .collect(),
         None => (0..ndim).map(|i| format!("dim_{i}")).collect(),
     }
@@ -420,9 +404,7 @@ fn resolve_v3_dim_names(names: &Option<Vec<Option<String>>>, ndim: usize) -> Vec
 // ---------------------------------------------------------------------
 
 fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
-    let attrs = read_json_value_opt(&dir.join(".zattrs"))?
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
+    let attrs = read_v2_attrs(dir)?;
 
     let mut vars = Vec::new();
     let mut children = Vec::new();
@@ -446,9 +428,7 @@ fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
 
 fn v2_var_summary(name: String, dir: &Path) -> Result<VarSummary, MetaError> {
     let array: ArrayMetadataV2 = read_json_as(&dir.join(".zarray"))?;
-    let attrs = read_json_value_opt(&dir.join(".zattrs"))?
-        .and_then(|v| v.as_object().cloned())
-        .unwrap_or_default();
+    let attrs = read_v2_attrs(dir)?;
     v2_var_from_parts(name, &array, &attrs)
 }
 
@@ -457,15 +437,15 @@ fn v2_var_from_parts(
     array: &ArrayMetadataV2,
     attrs: &serde_json::Map<String, Value>,
 ) -> Result<VarSummary, MetaError> {
-    let dims = attrs
+    let array_dimensions = attrs
         .get("_ARRAY_DIMENSIONS")
         .and_then(Value::as_array)
         .map(|dims| {
             dims.iter()
-                .filter_map(|v| v.as_str().map(str::to_owned))
+                .map(|v| v.as_str().map(str::to_owned))
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_else(|| (0..array.shape.len()).map(|i| format!("dim_{i}")).collect());
+        });
+    let dims = resolve_dim_names(&array_dimensions, array.shape.len());
 
     Ok(VarSummary {
         name,
@@ -481,11 +461,13 @@ fn v2_var_from_parts(
 /// Numpy-style dtype string for a Zarr v2 `dtype`. A `Simple` dtype is a
 /// typestring (`<f8`, `|S8`, ...) handled by [`v2_dtype_string`]; a
 /// `Structured` dtype (a list of `[fieldname, datatype, shape?]` entries)
-/// has no single numpy-style name, so it's passed through as its raw JSON.
+/// has no single numpy-style name, so — matching how other exotic/extension
+/// data types are reported elsewhere in this reader — it's reported simply
+/// as `compound` rather than dumping its raw per-field JSON.
 fn v2_dtype_from_metadata(dtype: &DataTypeMetadataV2) -> String {
     match dtype {
         DataTypeMetadataV2::Simple(s) => v2_dtype_string(s),
-        DataTypeMetadataV2::Structured(_) => dtype.to_string(),
+        DataTypeMetadataV2::Structured(_) => "compound".to_owned(),
     }
 }
 
@@ -614,12 +596,24 @@ fn build_v2_consolidated_group(
     // `.zgroup`, `.zattrs`, and `.zarray` paths whose parent is this node,
     // since a pure-group node may carry no attrs entry of its own (empty
     // attributes) or, in principle, no `.zgroup` entry either.
+    //
+    // A path is only excluded here when it's a *direct-child array* (no
+    // further "/" and itself an array path, already collected into `vars`
+    // above); a deeper array path (e.g. `g/arr/.zarray` when this node is
+    // the root) still names `g` as an implicit child group even though `g`
+    // itself carries no `.zgroup`/`.zattrs` entry of its own — dropping such
+    // paths outright (as opposed to only direct-child arrays) would silently
+    // lose that whole subtree.
     let mut child_names: BTreeMap<String, String> = BTreeMap::new();
     for path in group_paths.iter().chain(attrs.keys()).chain(arrays.keys()) {
         let Some(rest) = path.strip_prefix(&prefix) else {
             continue;
         };
-        if rest.is_empty() || arrays.contains_key(path) {
+        if rest.is_empty() {
+            continue;
+        }
+        let is_direct_child_array = !rest.contains('/') && arrays.contains_key(path);
+        if is_direct_child_array {
             continue;
         }
         let child = match rest.split_once('/') {
@@ -638,4 +632,179 @@ fn build_v2_consolidated_group(
         .collect();
 
     build_group_summary(name, own_attrs, vars, children)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroU64;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use zarrs_metadata::v3::FillValueMetadataV3;
+
+    use super::*;
+
+    /// Creates a fresh, empty temporary directory named `name` (e.g.
+    /// `"root.zarr"`) for a test store to write into, nested under a
+    /// process- and call-unique parent so parallel test runs never collide
+    /// and so `name` alone (not some disambiguating suffix) is what
+    /// `Path::file_stem` sees.
+    fn temp_store_dir(name: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock is after the epoch")
+            .as_nanos();
+        let parent = std::env::temp_dir().join(format!(
+            "gridded-meta-zarr-test-{}-{nanos}-{n}",
+            std::process::id()
+        ));
+        let dir = parent.join(name);
+        fs::create_dir_all(&dir).expect("create temp store dir");
+        dir
+    }
+
+    /// Minimal, valid Zarr v2 array metadata for a single 1-D array of
+    /// length 2, used by tests that only care about the array's *presence*
+    /// and name, not its dtype/shape/chunking details.
+    fn tiny_v2_array() -> ArrayMetadataV2 {
+        ArrayMetadataV2::new(
+            vec![2],
+            vec![NonZeroU64::new(2).expect("2 is nonzero")],
+            DataTypeMetadataV2::Simple("<f4".to_owned()),
+            FillValueMetadataV3::Null,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn resolve_dim_names_substitutes_missing_and_truncates_overlong() {
+        let sparse = Some(vec![Some("time".to_owned()), None, Some("y".to_owned())]);
+        assert_eq!(resolve_dim_names(&sparse, 3), vec!["time", "dim_1", "y"]);
+
+        let overlong = Some(vec![
+            Some("a".to_owned()),
+            Some("b".to_owned()),
+            Some("c".to_owned()),
+        ]);
+        assert_eq!(resolve_dim_names(&overlong, 2), vec!["a", "b"]);
+
+        assert_eq!(
+            resolve_dim_names(&None, 2),
+            vec!["dim_0".to_owned(), "dim_1".to_owned()]
+        );
+    }
+
+    #[test]
+    fn v2_structured_dtype_displays_as_compound() {
+        let dtype = DataTypeMetadataV2::Structured(Vec::new());
+        assert_eq!(v2_dtype_from_metadata(&dtype), "compound");
+    }
+
+    #[test]
+    fn root_array_name_falls_back_when_no_usable_stem() {
+        assert_eq!(root_array_name(Path::new("root.zarr")), "root");
+        assert_eq!(root_array_name(Path::new("/")), "array");
+        assert_eq!(root_array_name(Path::new(".")), "array");
+    }
+
+    #[test]
+    fn root_is_array_v2_uses_directory_stem_as_var_name() {
+        let dir = temp_store_dir("root.zarr");
+        let array = tiny_v2_array();
+        fs::write(
+            dir.join(".zarray"),
+            serde_json::to_string(&array).expect("serialize array metadata"),
+        )
+        .expect("write .zarray");
+
+        let summary = summarize_zarr(&dir).expect("summarize root-is-array v2 store");
+        let names: Vec<&str> = summary
+            .root
+            .data_vars
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["root"]);
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    #[test]
+    fn root_is_array_v3_uses_directory_stem_as_var_name() {
+        let dir = temp_store_dir("mydata.zarr");
+        let chunk_grid = MetadataV3::new_with_serializable_configuration(
+            "regular".to_owned(),
+            &serde_json::json!({ "chunk_shape": [2] }),
+        )
+        .expect("build regular chunk grid metadata");
+        let array = ArrayMetadataV3::new(
+            vec![2],
+            chunk_grid,
+            MetadataV3::new("float32"),
+            FillValueMetadataV3::Null,
+            Vec::new(),
+        );
+        fs::write(
+            dir.join("zarr.json"),
+            serde_json::to_string(&array).expect("serialize array metadata"),
+        )
+        .expect("write zarr.json");
+
+        let summary = summarize_zarr(&dir).expect("summarize root-is-array v3 store");
+        let names: Vec<&str> = summary
+            .root
+            .data_vars
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["mydata"]);
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    /// Regression test for a consolidated v2 store where an intermediate
+    /// group (`g`) has no `.zgroup`/`.zattrs` entry of its own in
+    /// `.zmetadata` — only its array `g/arr` does. `g` must still be
+    /// discovered as an implicit child group of the root, with `arr` inside
+    /// it, rather than being silently dropped.
+    #[test]
+    fn consolidated_v2_discovers_implicit_child_group() {
+        let dir = temp_store_dir("implicit.zarr");
+        let array = tiny_v2_array();
+
+        let mut metadata = serde_json::Map::new();
+        metadata.insert(
+            ".zgroup".to_owned(),
+            serde_json::json!({ "zarr_format": 2 }),
+        );
+        metadata.insert(
+            "g/arr/.zarray".to_owned(),
+            serde_json::to_value(&array).expect("serialize array metadata"),
+        );
+        let doc = serde_json::json!({ "metadata": metadata });
+        fs::write(
+            dir.join(".zmetadata"),
+            serde_json::to_string(&doc).expect("serialize .zmetadata"),
+        )
+        .expect("write .zmetadata");
+
+        let summary = summarize_zarr(&dir).expect("summarize consolidated v2 store");
+        let g = summary
+            .root
+            .children
+            .iter()
+            .find(|c| c.name == "g")
+            .expect("implicit group \"g\" is discovered");
+        assert!(
+            g.data_vars.iter().any(|v| v.name == "arr"),
+            "implicit group \"g\" contains its array \"arr\", got {:?}",
+            g.data_vars
+        );
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
 }

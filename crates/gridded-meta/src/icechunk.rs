@@ -51,13 +51,19 @@ mod enabled {
     use icechunk::Repository;
     use zarrs_metadata::v3::NodeMetadataV3;
 
-    use crate::model::{DatasetSummary, GroupSummary, SourceFormat, VersionInfo};
-    use crate::netcdf::MetaError;
+    use crate::error::MetaError;
+    use crate::model::{DatasetSummary, GroupSummary, SnapshotInfo, SourceFormat, VersionInfo};
     use crate::zarr::{build_group_summary, empty_v3_group_node, v3_node_attrs, v3_var_summary};
 
     /// The branch previewed for a repo. Icechunk has no configurable default
     /// branch (unlike git), so `main` is the only tip worth resolving.
     const DEFAULT_BRANCH: &str = "main";
+
+    /// Maximum number of snapshots (including the tip) walked back from
+    /// `main`'s tip when building [`VersionInfo::ancestry`]. Repos with deep
+    /// history are common enough (frequent small commits) that walking the
+    /// whole chain on every summarize call isn't worth it for a preview.
+    const ANCESTRY_LIMIT: usize = 20;
 
     /// Summarize the Zarr hierarchy at the tip of `main` in the Icechunk repo
     /// rooted at `path`, together with its commit history.
@@ -94,11 +100,7 @@ mod enabled {
             )
         })?;
 
-        let ancestry = collect_ancestry(&repo, path, &tip).await?;
-        let (message, wrote_at) = ancestry
-            .first()
-            .map(|entry| (entry.message.clone(), Some(entry.wrote_at.clone())))
-            .unwrap_or_default();
+        let (ancestry, truncated) = collect_ancestry(&repo, path, &tip).await?;
 
         let session = repo
             .readonly_session(&IceVersionInfo::SnapshotId(tip.clone()))
@@ -118,28 +120,17 @@ mod enabled {
             format: SourceFormat::Icechunk,
             root,
             version_info: Some(VersionInfo {
-                snapshot_id: tip.to_string(),
                 branch: DEFAULT_BRANCH.to_owned(),
-                message,
-                wrote_at,
-                n_snapshots: ancestry.len() as u64,
-                ancestry: ancestry
-                    .into_iter()
-                    .map(|entry| (entry.id, entry.message))
-                    .collect(),
+                ancestry,
+                truncated,
             }),
         })
     }
 
-    /// One commit in the history, flattened out of icechunk's `SnapshotInfo`.
-    struct AncestryEntry {
-        id: String,
-        message: Option<String>,
-        wrote_at: String,
-    }
-
-    /// Walks the parent chain from `tip` back to the repo's initial snapshot,
-    /// newest first.
+    /// Walks the parent chain from `tip` back to the repo's initial
+    /// snapshot, newest first, capped at [`ANCESTRY_LIMIT`] entries
+    /// (including the tip). Returns the walked snapshots plus whether the
+    /// cap was hit before reaching the initial snapshot.
     ///
     /// Done by following `SnapshotInfo::parent_id` rather than with
     /// `Repository::ancestry`, which yields an async `Stream` and would drag
@@ -149,26 +140,31 @@ mod enabled {
         repo: &Repository,
         path: &Path,
         tip: &SnapshotId,
-    ) -> Result<Vec<AncestryEntry>, MetaError> {
+    ) -> Result<(Vec<SnapshotInfo>, bool), MetaError> {
         let mut entries = Vec::new();
         let mut cursor = Some(tip.clone());
+        let mut truncated = false;
         while let Some(id) = cursor {
+            if entries.len() >= ANCESTRY_LIMIT {
+                truncated = true;
+                break;
+            }
             let info = repo
                 .lookup_snapshot(&id)
                 .await
                 .map_err(|err| invalid(path, format!("cannot read snapshot {id}: {err}")))?;
-            entries.push(AncestryEntry {
+            entries.push(SnapshotInfo {
                 id: info.id.to_string(),
                 message: if info.message.is_empty() {
                     None
                 } else {
                     Some(info.message.clone())
                 },
-                wrote_at: info.flushed_at.to_rfc3339(),
+                wrote_at: Some(info.flushed_at.to_rfc3339()),
             });
             cursor = info.parent_id;
         }
-        Ok(entries)
+        Ok((entries, truncated))
     }
 
     /// Rebuilds the group tree from icechunk's flat, fully-qualified node
@@ -259,7 +255,7 @@ mod enabled {
     }
 
     fn invalid(path: &Path, message: String) -> MetaError {
-        MetaError::Invalid {
+        MetaError::Icechunk {
             path: path.to_path_buf(),
             message,
         }

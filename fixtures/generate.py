@@ -104,6 +104,15 @@ def make_tree(ds: xr.Dataset) -> xr.DataTree:
 def write_netcdf_fixtures(ds: xr.Dataset, dt: xr.DataTree) -> None:
     ds.to_netcdf(DATA_DIR / "simple.nc", engine="netcdf4")
     dt.to_netcdf(DATA_DIR / "groups.nc", engine="netcdf4")
+    # Classic/CDF-1 format: no group API (single flat root) and a narrower
+    # dtype repertoire than netCDF-4 (notably no int64/uint* types — writing
+    # one raises rather than silently downcasting). `make_simple_dataset`
+    # only uses float32 data/coord vars plus a datetime64 `time` coord (CF
+    # semantics), so nothing needs to be dropped here; a future dataset that
+    # adds int64/uint variables would need a classic-safe variant instead.
+    ds.to_netcdf(
+        DATA_DIR / "simple_classic.nc", engine="netcdf4", format="NETCDF3_CLASSIC"
+    )
 
 
 def write_zarr_fixtures(ds: xr.Dataset, dt: xr.DataTree) -> None:

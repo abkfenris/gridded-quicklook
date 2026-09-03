@@ -35,9 +35,8 @@ mod with_reader {
         let summary =
             summarize_icechunk(&fixture("icechunk_repo.icechunk")).expect("summarize repo");
         insta::assert_json_snapshot!(summary, {
-            ".version_info.snapshot_id" => "[snapshot-id]",
-            ".version_info.wrote_at" => "[timestamp]",
-            ".version_info.ancestry[][0]" => "[snapshot-id]",
+            ".version_info.ancestry[].id" => "[snapshot-id]",
+            ".version_info.ancestry[].wrote_at" => "[timestamp]",
         });
     }
 
@@ -57,16 +56,22 @@ mod with_reader {
 
         assert_eq!(version.branch, "main");
         assert_eq!(version.ancestry.len(), 3);
-        assert_eq!(version.n_snapshots, 3);
+        assert!(!version.truncated);
 
         // Newest first: the tip is the most recent commit.
-        assert_eq!(version.message.as_deref(), Some("update global attrs"));
-        assert_eq!(version.snapshot_id, version.ancestry[0].0);
+        assert_eq!(
+            version.ancestry[0].message.as_deref(),
+            Some("update global attrs")
+        );
+        assert!(
+            version.ancestry[0].wrote_at.is_some(),
+            "the tip snapshot should carry a wrote_at timestamp"
+        );
 
         let messages: Vec<&str> = version
             .ancestry
             .iter()
-            .filter_map(|(_, message)| message.as_deref())
+            .filter_map(|entry| entry.message.as_deref())
             .collect();
         assert!(
             messages.contains(&"update global attrs"),
