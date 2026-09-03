@@ -6,7 +6,7 @@
 # [tool.uv]
 # exclude-newer = "2026-08-10T00:00:00Z"
 # ///
-"""Generate deterministic, tiny test fixtures for gridded-quicklook.
+"""Generate deterministic, tiny test fixtures for gridlook.
 
 Re-runnable: wipes and recreates ``fixtures/data/`` and
 ``fixtures/reference/`` on every run. Every generated file is kept well
@@ -74,7 +74,7 @@ def make_simple_dataset() -> xr.Dataset:
             "x": ("x", x, {"units": "km", "long_name": "Cross-shore distance"}),
         },
         attrs={
-            "title": "gridded-quicklook simple fixture",
+            "title": "gridlook simple fixture",
             "institution": "NERACOOS",
             "conventions": "CF-1.8",
         },

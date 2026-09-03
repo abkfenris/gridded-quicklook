@@ -632,24 +632,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "gridded-ffi"
+name = "gridlook-ffi"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
- "gridded-html",
- "gridded-meta",
+ "gridlook-html",
+ "gridlook-meta",
 ]
 
 [[package]]
-name = "gridded-html"
+name = "gridlook-html"
 version = "0.1.0"
 dependencies = [
- "gridded-meta",
+ "gridlook-meta",
  "insta",
 ]
 
 [[package]]
-name = "gridded-meta"
+name = "gridlook-meta"
 version = "0.1.0"
 dependencies = [
  "base64",

@@ -35,8 +35,8 @@ jobs:
           install: true
           cache: true
 
-      - name: cargo build --release -p gridded-ffi
-        run: cargo build --release -p gridded-ffi
+      - name: cargo build --release -p gridlook-ffi
+        run: cargo build --release -p gridlook-ffi
 
       - name: mise run xcodeproj
         run: mise run xcodeproj
@@ -46,11 +46,11 @@ jobs:
         # profile, so signing is disabled entirely rather than attempting
         # (and failing) an ad-hoc signature. This still exercises the full
         # compile + link of the app and app-extension targets, including
-        # linking against libgridded_ffi.a.
+        # linking against libgridlook_ffi.a.
         run: |
           xcodebuild \
-            -project apple/GriddedQuickLook.xcodeproj \
-            -scheme GriddedQuickLook \
+            -project apple/GridLook.xcodeproj \
+            -scheme GridLook \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build

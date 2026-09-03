@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Gridded QuickLook</string>
+	<string>GridLook</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -42,7 +42,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridded.netcdf</string>
+			<string>dev.gridlook.netcdf</string>
 			<key>UTTypeDescription</key>
 			<string>NetCDF Dataset</string>
 			<key>UTTypeConformsTo</key>
@@ -61,7 +61,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridded.hdf5</string>
+			<string>dev.gridlook.hdf5</string>
 			<key>UTTypeDescription</key>
 			<string>HDF5 Dataset</string>
 			<key>UTTypeConformsTo</key>
@@ -97,7 +97,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridded.zarr</string>
+			<string>dev.gridlook.zarr</string>
 			<key>UTTypeDescription</key>
 			<string>Zarr Store</string>
 			<key>UTTypeConformsTo</key>
@@ -115,7 +115,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridded.icechunk</string>
+			<string>dev.gridlook.icechunk</string>
 			<key>UTTypeDescription</key>
 			<string>Icechunk Repository</string>
 			<key>UTTypeConformsTo</key>
