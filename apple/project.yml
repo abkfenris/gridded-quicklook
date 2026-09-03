@@ -1,0 +1,133 @@
+########################################################################
+# XcodeGen spec for the gridded-quicklook macOS app + QuickLook preview
+# app extension.
+#
+# Generate the .xcodeproj with `mise run xcodeproj`. Building it
+# (`mise run build-appex` / `xcodebuild`) needs a full Xcode install.
+#
+# apple/include/gridded_ffi.h is generated (not tracked): the prebuild
+# script phase below runs `cargo build`, whose build.rs writes the header
+# before Xcode compiles any Swift that imports it.
+#
+# Linking note (verified by hand -- see crates/gridded-ffi's build notes):
+# `cargo build --release -p gridded-ffi` produces a `staticlib` that already
+# has libnetcdf, libhdf5, and libz's object code merged into it (Rust's
+# staticlib output absorbs the object files of every native static library
+# it transitively links against). DAP/remote support is compiled out of
+# netcdf-src, so no libcurl is pulled in at all. A hand link test
+# (`clang main.c -Lapple/../target/release -lgridded_ffi`) confirmed that
+# `-lgridded_ffi` alone resolves cleanly with no extra `-lz`/-lcurl/-lnetcdf/
+# -lhdf5 flags needed -- only the ordinary macOS system libraries. Since the
+# Icechunk reader was added the one exception is `-framework
+# CoreFoundation` (see OTHER_LDFLAGS below); zstd, flatbuffers and the rest
+# of icechunk's native code are absorbed into the staticlib as before.
+#
+# UTI note: the type declarations themselves live in the two Info.plist
+# files referenced below (App/Info.plist declares them, PreviewExtension/
+# Info.plist matches against them in QLSupportedContentTypes), not in this
+# spec -- xcodegen copies INFOPLIST_FILE through verbatim. The app imports
+# dev.gridded.netcdf/.hdf5 (file types) and exports dev.gridded.zarr/
+# .icechunk (directory stores, conforming to com.apple.package so the
+# Finder treats them as previewable single items).
+########################################################################
+
+name: GriddedQuickLook
+
+options:
+  bundleIdPrefix: dev.gridded
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-" # ad-hoc signing for local development
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    GENERATE_INFOPLIST_FILE: NO
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  GriddedQuickLook:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.gridded.quicklook
+        PRODUCT_NAME: GriddedQuickLook
+        INFOPLIST_FILE: App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+    dependencies:
+      - target: PreviewExtension
+        embed: true
+        codeSign: true
+
+  PreviewExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: PreviewExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.gridded.quicklook.preview
+        PRODUCT_NAME: PreviewExtension
+        INFOPLIST_FILE: PreviewExtension/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: PreviewExtension/BridgingHeader.h
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/include
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/../target/release
+        OTHER_LDFLAGS:
+          - -lgridded_ffi
+          # Required since the Icechunk reader was added: icechunk pulls in
+          # chrono -> iana-time-zone, which resolves the system time zone
+          # through CoreFoundation (CFTimeZoneCopySystem and friends).
+          # Verified by hand-linking the release staticlib -- without this
+          # flag the link fails with undefined _CFTimeZone*/_CFString*
+          # symbols; with it, `-lgridded_ffi` still needs no other extra
+          # libraries.
+          - -framework
+          - CoreFoundation
+        SKIP_INSTALL: YES
+    entitlements:
+      path: PreviewExtension/PreviewExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-only: true
+    # Keeps `xcodebuild`/Xcode builds self-contained: building the app
+    # extension target always (re)builds the Rust staticlib it links
+    # against first, so a clean checkout can go straight to
+    # `mise run build-appex` without a separate cargo step.
+    #
+    # `basedOnDependencyAnalysis: false` forces this to run on every build
+    # (cargo does its own up-to-date checking internally, so this is cheap
+    # on a no-op build) rather than only when Xcode thinks its declared
+    # inputs/outputs changed, which it can't know about for an external
+    # build system.
+    prebuildScripts:
+      - name: Build gridded-ffi (cargo)
+        # Xcode exports SDKROOT/MACOSX_DEPLOYMENT_TARGET into script phases,
+        # which poisons the C builds inside cargo's dependency tree (they are
+        # host-tool builds, not appex code) and invalidates the fingerprints
+        # of the staticlib built from the CLI. Xcode's PATH also misses the
+        # mise shims, so cmake can resolve to an unpinned system/Homebrew
+        # cmake that HDF5's vendored build doesn't support. Run cargo through
+        # the mise shims with those variables stripped so this phase produces
+        # the exact same artifact as `cargo build` in a terminal.
+        script: |
+          set -euo pipefail
+          cd "$SRCROOT/.."
+          PATH="$HOME/.local/share/mise/shims:$PATH" \
+            env -u SDKROOT -u MACOSX_DEPLOYMENT_TARGET -u DEVELOPER_DIR \
+            cargo build --release -p gridded-ffi
+        basedOnDependencyAnalysis: false

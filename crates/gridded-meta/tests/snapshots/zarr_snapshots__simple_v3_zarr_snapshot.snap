@@ -1,0 +1,162 @@
+---
+source: crates/gridded-meta/tests/zarr_snapshots.rs
+expression: summary
+---
+{
+  "format": "ZarrV3",
+  "root": {
+    "name": "",
+    "dims": [
+      {
+        "name": "time",
+        "size": 4,
+        "is_unlimited": false
+      },
+      {
+        "name": "x",
+        "size": 3,
+        "is_unlimited": false
+      },
+      {
+        "name": "y",
+        "size": 2,
+        "is_unlimited": false
+      }
+    ],
+    "coords": [
+      {
+        "name": "time",
+        "dtype": "int64",
+        "dims": [
+          "time"
+        ],
+        "shape": [
+          4
+        ],
+        "chunks": [
+          4
+        ],
+        "attrs": [
+          [
+            "calendar",
+            "proleptic_gregorian"
+          ],
+          [
+            "units",
+            "days since 2024-01-01 00:00:00"
+          ]
+        ]
+      },
+      {
+        "name": "x",
+        "dtype": "float32",
+        "dims": [
+          "x"
+        ],
+        "shape": [
+          3
+        ],
+        "chunks": [
+          3
+        ],
+        "attrs": [
+          [
+            "_FillValue",
+            null
+          ],
+          [
+            "long_name",
+            "Cross-shore distance"
+          ],
+          [
+            "units",
+            "km"
+          ]
+        ]
+      }
+    ],
+    "data_vars": [
+      {
+        "name": "salinity",
+        "dtype": "float32",
+        "dims": [
+          "time",
+          "x",
+          "y"
+        ],
+        "shape": [
+          4,
+          3,
+          2
+        ],
+        "chunks": [
+          4,
+          3,
+          2
+        ],
+        "attrs": [
+          [
+            "_FillValue",
+            null
+          ],
+          [
+            "long_name",
+            "Sea Water Salinity"
+          ],
+          [
+            "units",
+            "psu"
+          ]
+        ]
+      },
+      {
+        "name": "temperature",
+        "dtype": "float32",
+        "dims": [
+          "time",
+          "x",
+          "y"
+        ],
+        "shape": [
+          4,
+          3,
+          2
+        ],
+        "chunks": [
+          4,
+          3,
+          2
+        ],
+        "attrs": [
+          [
+            "_FillValue",
+            null
+          ],
+          [
+            "long_name",
+            "Sea Water Temperature"
+          ],
+          [
+            "units",
+            "degC"
+          ]
+        ]
+      }
+    ],
+    "attrs": [
+      [
+        "conventions",
+        "CF-1.8"
+      ],
+      [
+        "institution",
+        "NERACOOS"
+      ],
+      [
+        "title",
+        "gridded-quicklook simple fixture"
+      ]
+    ],
+    "children": []
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "gridded-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "gridded_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+gridded-meta = { workspace = true, features = ["icechunk"] }
+gridded-html.workspace = true
+
+[build-dependencies]
+cbindgen = { version = "0.28", default-features = false }

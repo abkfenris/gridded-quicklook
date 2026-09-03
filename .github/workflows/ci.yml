@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: mise run lint
+        run: mise run lint
+
+      - name: mise run test
+        run: mise run test
+
+      - name: prek run --all-files
+        run: prek run --all-files
+
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+
+      - name: cargo build --release -p gridded-ffi
+        run: cargo build --release -p gridded-ffi
+
+      - name: mise run xcodeproj
+        run: mise run xcodeproj
+
+      - name: xcodebuild (unsigned)
+        # CI runners have no code signing identity or provisioning
+        # profile, so signing is disabled entirely rather than attempting
+        # (and failing) an ad-hoc signature. This still exercises the full
+        # compile + link of the app and app-extension targets, including
+        # linking against libgridded_ffi.a.
+        run: |
+          xcodebuild \
+            -project apple/GriddedQuickLook.xcodeproj \
+            -scheme GriddedQuickLook \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build

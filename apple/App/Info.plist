@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Gridded QuickLook</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<!--
+	  These two UTIs are minted by this project (there is no third-party
+	  owner to "import" from), but they are declared as *imported* rather
+	  than *exported* on purpose: this app does not register itself as an
+	  editor/owner of .nc/.h5 files (no CFBundleDocumentTypes, no document
+	  icon, no "Open With" entry) -- it only needs the system to recognize
+	  these extensions as conforming to the UTIs the PreviewExtension
+	  target below matches against in its QLSupportedContentTypes.
+	  UTExportedTypeDeclarations is for apps that *own* a file format;
+	  UTImportedTypeDeclarations is for apps that merely need to reference
+	  a type identifier, which is exactly this app's situation.
+	-->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridded.netcdf</string>
+			<key>UTTypeDescription</key>
+			<string>NetCDF Dataset</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>nc</string>
+					<string>nc4</string>
+					<string>cdf</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridded.hdf5</string>
+			<key>UTTypeDescription</key>
+			<string>HDF5 Dataset</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>h5</string>
+					<string>hdf5</string>
+					<string>he5</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<!--
+	  Zarr stores and Icechunk repositories are *directories*, not files, and
+	  no one else has minted a UTI for either. These two are therefore
+	  declared as *exported*: this project defines the types, so it is their
+	  owner of record.
+
+	  Both conform to com.apple.package (a directory the Finder presents as a
+	  single opaque item, which is what makes a `.zarr`/`.icechunk` folder
+	  previewable at all) and to public.folder (so anything that reasons
+	  about directories still treats them correctly). The tag specification
+	  binds them to the conventional directory-name extensions; a store
+	  without one of those extensions stays an ordinary folder to the system,
+	  even though the Rust reader would happily preview it.
+	-->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridded.zarr</string>
+			<key>UTTypeDescription</key>
+			<string>Zarr Store</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+				<string>public.folder</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>zarr</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridded.icechunk</string>
+			<key>UTTypeDescription</key>
+			<string>Icechunk Repository</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+				<string>public.folder</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>icechunk</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>
