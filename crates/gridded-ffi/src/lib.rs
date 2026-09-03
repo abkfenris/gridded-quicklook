@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn renders_an_icechunk_repository_with_its_version_history() {
-        let html = render(&fixture_path("icechunk_repo"));
+        let html = render(&fixture_path("icechunk_repo.icechunk"));
         assert!(
             html.contains("xr-wrap"),
             "expected xarray-style repr markup for an Icechunk repo, got: {html}"

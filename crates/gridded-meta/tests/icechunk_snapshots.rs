@@ -10,7 +10,7 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn icechunk_repo_is_detected_by_layout() {
-    assert!(is_icechunk_repo(&fixture("icechunk_repo")));
+    assert!(is_icechunk_repo(&fixture("icechunk_repo.icechunk")));
 }
 
 #[test]
@@ -32,7 +32,8 @@ mod with_reader {
     /// history length), not the volatile identifiers.
     #[test]
     fn icechunk_repo_snapshot() {
-        let summary = summarize_icechunk(&fixture("icechunk_repo")).expect("summarize repo");
+        let summary =
+            summarize_icechunk(&fixture("icechunk_repo.icechunk")).expect("summarize repo");
         insta::assert_json_snapshot!(summary, {
             ".version_info.snapshot_id" => "[snapshot-id]",
             ".version_info.wrote_at" => "[timestamp]",
@@ -44,7 +45,8 @@ mod with_reader {
     /// Icechunk creates when the repository is initialized.
     #[test]
     fn version_info_describes_the_main_branch_history() {
-        let summary = summarize_icechunk(&fixture("icechunk_repo")).expect("summarize repo");
+        let summary =
+            summarize_icechunk(&fixture("icechunk_repo.icechunk")).expect("summarize repo");
 
         assert_eq!(summary.format, SourceFormat::Icechunk);
 
@@ -80,7 +82,8 @@ mod with_reader {
     /// so the hierarchy conversion should agree with the Zarr v3 reader.
     #[test]
     fn hierarchy_matches_the_equivalent_zarr_fixture() {
-        let summary = summarize_icechunk(&fixture("icechunk_repo")).expect("summarize repo");
+        let summary =
+            summarize_icechunk(&fixture("icechunk_repo.icechunk")).expect("summarize repo");
 
         let coord_names: Vec<&str> = summary
             .root

@@ -122,7 +122,7 @@ def write_zarr_fixtures(ds: xr.Dataset, dt: xr.DataTree) -> None:
 
 
 def write_icechunk_fixture(ds: xr.Dataset) -> None:
-    repo_path = DATA_DIR / "icechunk_repo"
+    repo_path = DATA_DIR / "icechunk_repo.icechunk"
     storage = icechunk.local_filesystem_storage(str(repo_path))
     repo = icechunk.Repository.create(storage)
 
