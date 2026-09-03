@@ -216,23 +216,25 @@ pub fn summarize_variable(ids: &IdGen, name: &str, var: &VarSummary, is_index: b
     )
 }
 
-pub fn summarize_coords(ids: &IdGen, coords: &[VarSummary]) -> String {
-    let index_names = index_coord_names(coords);
+/// Shared body of `summarize_coords`/`summarize_vars`: renders a `<ul>` of
+/// `summarize_variable` items, marking each as an index coord iff its name
+/// is in `index_names`.
+fn summarize_var_list(ids: &IdGen, vars: &[VarSummary], index_names: &HashSet<&str>) -> String {
     let mut vars_li = String::new();
-    for v in coords {
+    for v in vars {
         let li_content = summarize_variable(ids, &v.name, v, index_names.contains(v.name.as_str()));
         let _ = write!(vars_li, "<li class='xr-var-item'>{li_content}</li>");
     }
     format!("<ul class='xr-var-list'>{vars_li}</ul>")
 }
 
+pub fn summarize_coords(ids: &IdGen, coords: &[VarSummary]) -> String {
+    let index_names = index_coord_names(coords);
+    summarize_var_list(ids, coords, &index_names)
+}
+
 pub fn summarize_vars(ids: &IdGen, vars: &[VarSummary]) -> String {
-    let mut vars_li = String::new();
-    for v in vars {
-        let li_content = summarize_variable(ids, &v.name, v, false);
-        let _ = write!(vars_li, "<li class='xr-var-item'>{li_content}</li>");
-    }
-    format!("<ul class='xr-var-list'>{vars_li}</ul>")
+    summarize_var_list(ids, vars, &HashSet::new())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -454,10 +456,9 @@ fn group_sections(ids: &IdGen, group: &GroupSummary, always_show_dims: bool) -> 
     sections
 }
 
-/// Flat, xarray-`Dataset`-style repr for a group with no children. Mirrors
-/// `dataset_repr` in the Python source.
-pub fn dataset_repr(ids: &IdGen, group: &GroupSummary) -> String {
-    let obj_type = "gridded.Dataset";
+/// Shared body of `dataset_repr`/`datatree_repr`: assembles the header,
+/// fallback, and given `sections` into the final top-level repr for `group`.
+fn top_level_repr(obj_type: &str, group: &GroupSummary, sections: &[String]) -> String {
     let mut header_components = vec![format!("<div class='xr-obj-type'>{obj_type}</div>")];
     if !group.name.is_empty() {
         header_components.push(format!(
@@ -466,9 +467,15 @@ pub fn dataset_repr(ids: &IdGen, group: &GroupSummary) -> String {
         ));
     }
 
-    let sections = group_sections(ids, group, true);
     let fallback = text_repr_fallback(obj_type, group);
-    obj_repr(&header_components, &sections, &fallback)
+    obj_repr(&header_components, sections, &fallback)
+}
+
+/// Flat, xarray-`Dataset`-style repr for a group with no children. Mirrors
+/// `dataset_repr` in the Python source.
+pub fn dataset_repr(ids: &IdGen, group: &GroupSummary) -> String {
+    let sections = group_sections(ids, group, true);
+    top_level_repr("gridded.Dataset", group, &sections)
 }
 
 /// Total variable + attribute count for a group, including all descendant
@@ -535,16 +542,6 @@ fn datatree_child_repr(ids: &IdGen, node: &GroupSummary, end: bool) -> String {
 /// Nested, xarray-`DataTree`-style repr for a group with children. Mirrors
 /// `datatree_repr`.
 pub fn datatree_repr(ids: &IdGen, root: &GroupSummary) -> String {
-    let obj_type = "gridded.DataTree";
-    let mut header_components = vec![format!("<div class='xr-obj-type'>{obj_type}</div>")];
-    if !root.name.is_empty() {
-        header_components.push(format!(
-            "<div class='xr-obj-name'>{}</div>",
-            html_escape(&root.name)
-        ));
-    }
-
     let sections = datatree_sections(ids, root);
-    let fallback = text_repr_fallback(obj_type, root);
-    obj_repr(&header_components, &sections, &fallback)
+    top_level_repr("gridded.DataTree", root, &sections)
 }
