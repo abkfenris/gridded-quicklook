@@ -1,13 +1,17 @@
 # gridded-quicklook
 
-A macOS Quick Look app extension that previews gridded scientific data —
-NetCDF/HDF5 files, Zarr stores, and Icechunk repositories — as an
-xarray-style dataset repr, straight from the Finder (spacebar).
+A macOS Quick Look app extension that previews gridded scientific data (NetCDF/HDF5 files, Zarr stores, and Icechunk repositories) as an
+xarray-style dataset repr.
 
-Previews are **metadata only**: dimensions, variables, dtypes, chunking,
-attributes, and group hierarchy. Chunk data is never decompressed, so a
-multi-terabyte store previews as fast as a toy one. Icechunk repositories
-additionally show the commit history of their `main` branch.
+![Quick Look previewing an Icechunk repository: dimensions, coordinates, data variables, and attributes in xarray's repr style, with the repo's branch, snapshot, and commit ancestry below](docs/quicklook-icechunk.png)
+
+Previews are currently metadata only: dimensions, variables, dtypes, chunking,
+attributes, and group hierarchy. Icechunk repositories additionally show the
+commit history of their `main` branch.
+
+## Installing
+
+`mise run install-dev` from the repo should try to install things, or yell at you.
 
 ## Supported formats
 
@@ -38,11 +42,11 @@ conforming to `com.apple.package`.
 
 The Icechunk reader lives behind `gridded-meta`'s non-default `icechunk`
 cargo feature (it pulls in a sizable dependency tree); `gridded-ffi` enables
-it, so the shipping extension always has it.
+it, so the extension always has it.
 
 ## Development
 
-Toolchains (Rust, cmake, uv, xcodegen) are pinned in `mise.toml`:
+Toolchains (Rust, cmake, uv, xcodegen, prek) are pinned in `mise.toml`:
 
 ```sh
 mise install
@@ -67,21 +71,21 @@ generation are usable without Xcode.
 | `mise run install-dev`        | `scripts/install-dev.sh`                                |
 | `mise run preview`            | Reset/reload the Quick Look daemon                      |
 
-To exercise the extension in the real Finder, `scripts/install-dev.sh`
-builds it, ad-hoc signs it, and installs it into `~/Applications` — no Apple
-Developer account or provisioning profile required.
+To use the extension locally, `mise run install-dev`
+builds it, ad-hoc signs it, and installs it into `~/Applications` (no Apple
+Developer account or provisioning profile required).
 
 Snapshot tests use [insta](https://insta.rs); run `cargo insta review` after
 an intentional change. The Icechunk snapshot redacts snapshot ids and
 timestamps, so regenerating fixtures does not churn it.
 
-A `.devcontainer/` is provided for Linux work on the Rust crates. It cannot
-build or run the macOS app extension — that part needs a Mac with Xcode.
+A `.devcontainer/` is provided for Linux work on the Rust crates. A Mac with
+Xcode is needed to build or run the macOS app extension.
 
 ## Attribution
 
 `crates/gridded-html/assets/` contains xarray's HTML-repr stylesheet and
-inline SVG icons, copied verbatim from
+inline SVG icons, copied from
 [pydata/xarray](https://github.com/pydata/xarray) (Apache License 2.0,
 copyright the xarray contributors) so that previews are styled identically
 to xarray's own `_repr_html_`. Refresh them with
