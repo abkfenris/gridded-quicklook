@@ -8,6 +8,8 @@ import SwiftUI
 private let supportedFormats: [(title: String, extensions: String)] = [
     ("NetCDF", "nc, nc4, cdf"),
     ("HDF5", "h5, hdf5, he5"),
+    ("Zarr store (folder)", "zarr"),
+    ("Icechunk repo (folder)", "icechunk"),
 ]
 
 struct ContentView: View {

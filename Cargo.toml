@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2021"
 license = "BSD-3-Clause"
-repository = "https://github.com/akerney/gridded-quicklook"
+repository = "https://github.com/abkfenris/gridded-quicklook"
 
 [workspace.dependencies]
 gridded-meta = { path = "crates/gridded-meta" }

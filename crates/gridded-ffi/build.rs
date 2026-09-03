@@ -1,12 +1,16 @@
-//! Generates `apple/include/gridded_ffi.h` from this crate's `#[no_mangle]
-//! extern "C"` functions via `cbindgen`, and checks the result into the
-//! repository (see the crate root and `apple/project.yml`) so that Xcode
-//! builds don't depend on running `cargo build` before opening the header.
+//! Generates `apple/include/gridded_ffi.h` (gitignored) from this crate's
+//! `#[no_mangle] extern "C"` functions via `cbindgen`. Xcode's prebuild
+//! phase runs `cargo build` before compiling any Swift, so the header is
+//! always present when the appex builds (see `apple/project.yml`).
 //!
 //! The header is only written when its contents actually change, so a
-//! plain `cargo build` doesn't dirty the working tree (and doesn't cause
-//! Xcode -- which references the header directly on disk, not through a
-//! build phase -- to see spurious modification-time churn).
+//! plain `cargo build` doesn't cause Xcode -- which references the header
+//! directly on disk, not through a build phase -- to see spurious
+//! modification-time churn.
+//!
+//! Every failure path warns instead of panicking: the Rust build must not
+//! fail on a read-only checkout (vendored source, Nix/Guix sandbox, RO CI
+//! cache) just because the header can't be (re)written there.
 
 use std::env;
 use std::fs;
@@ -27,8 +31,13 @@ fn main() {
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=build.rs");
 
-    let config = cbindgen::Config::from_file(crate_dir.join("cbindgen.toml"))
-        .expect("cbindgen.toml must parse");
+    let config = match cbindgen::Config::from_file(crate_dir.join("cbindgen.toml")) {
+        Ok(config) => config,
+        Err(err) => {
+            println!("cargo:warning=gridded-ffi: failed to read cbindgen.toml: {err}");
+            return;
+        }
+    };
 
     let bindings = match cbindgen::Builder::new()
         .with_crate(&crate_dir)
@@ -60,7 +69,12 @@ fn main() {
     }
 
     if let Some(parent) = header_path.parent() {
-        fs::create_dir_all(parent).expect("failed to create apple/include");
+        if let Err(err) = fs::create_dir_all(parent) {
+            println!("cargo:warning=gridded-ffi: cannot create apple/include: {err}");
+            return;
+        }
     }
-    fs::write(&header_path, new_contents).expect("failed to write apple/include/gridded_ffi.h");
+    if let Err(err) = fs::write(&header_path, new_contents) {
+        println!("cargo:warning=gridded-ffi: cannot write apple/include/gridded_ffi.h: {err}");
+    }
 }

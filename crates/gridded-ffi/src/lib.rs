@@ -15,7 +15,7 @@ use std::os::raw::c_char;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
-use gridded_html::render_page;
+use gridded_html::{html_escape, render_page};
 use gridded_meta::{
     is_icechunk_repo, summarize_icechunk, summarize_netcdf, summarize_zarr, DatasetSummary,
     MetaError,
@@ -160,14 +160,19 @@ fn summarize_file(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
 /// equally well be named anything at all. `None` means the directory is
 /// neither an Icechunk repo nor a Zarr store.
 fn summarize_directory_store(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
-    if is_icechunk_repo(path) {
-        return Some(summarize_icechunk(path));
-    }
+    // Zarr's root markers are checked first: they are definitive files at
+    // the root, while `is_icechunk_repo` is a directory-layout sniff that a
+    // Zarr store could satisfy by coincidence (child groups named
+    // `snapshots`/`transactions`/`refs`). An Icechunk repo root never
+    // contains a Zarr root marker, so this ordering misroutes neither.
     if ZARR_ROOT_MARKERS
         .iter()
         .any(|marker| path.join(marker).is_file())
     {
         return Some(summarize_zarr(path));
+    }
+    if is_icechunk_repo(path) {
+        return Some(summarize_icechunk(path));
     }
     None
 }
@@ -212,24 +217,6 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; p
 </body>\
 </html>"
     )
-}
-
-/// Escapes the five HTML special characters. Kept local (rather than
-/// depending on `gridded-html`'s private helper of the same name) since
-/// this crate only needs it for the plain-text error message.
-fn html_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#x27;"),
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -291,6 +278,31 @@ mod tests {
             !html.contains("gq-error"),
             "a valid Zarr store must not render an error card"
         );
+    }
+
+    /// A Zarr store whose child nodes happen to be named like Icechunk
+    /// internals must still be routed to the Zarr reader: the definitive
+    /// root markers win over the icechunk directory-layout sniff.
+    #[test]
+    fn zarr_store_with_icechunk_like_children_routes_to_zarr() {
+        let dir = std::env::temp_dir().join("gridded_ffi_dispatch_test.zarr");
+        let _ = std::fs::remove_dir_all(&dir);
+        for child in ["snapshots", "transactions"] {
+            std::fs::create_dir_all(dir.join(child)).expect("create child dirs");
+        }
+        std::fs::write(
+            dir.join("zarr.json"),
+            r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#,
+        )
+        .expect("write root zarr.json");
+
+        let html = render(dir.to_str().expect("temp path is UTF-8"));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            !html.contains("gq-error"),
+            "a Zarr store with icechunk-like child names must not error, got: {html}"
+        );
+        assert!(html.contains("xr-wrap"), "expected Zarr repr, got: {html}");
     }
 
     #[test]
