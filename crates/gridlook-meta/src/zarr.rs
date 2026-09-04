@@ -41,7 +41,15 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
             NodeMetadataV3::Group(group) => walk_v3_group(path, String::new(), group)?,
             NodeMetadataV3::Array(array) => {
                 let var = v3_var_summary(root_array_name(path), &array, &v3_root)?;
-                build_group_summary(String::new(), &array.attributes, vec![var], Vec::new())
+                // The array's attributes belong to the variable (attached
+                // by `v3_var_summary`); the synthetic root group wrapping
+                // it has none of its own, same as the v2 root-array case.
+                build_group_summary(
+                    String::new(),
+                    &serde_json::Map::new(),
+                    vec![var],
+                    Vec::new(),
+                )
             }
         };
         return Ok(DatasetSummary {
@@ -806,13 +814,16 @@ mod tests {
             &serde_json::json!({ "chunk_shape": [2] }),
         )
         .expect("build regular chunk grid metadata");
-        let array = ArrayMetadataV3::new(
+        let mut array = ArrayMetadataV3::new(
             vec![2],
             chunk_grid,
             MetadataV3::new("float32"),
             FillValueMetadataV3::Null,
             Vec::new(),
         );
+        array
+            .attributes
+            .insert("units".to_owned(), serde_json::json!("m"));
         fs::write(
             dir.join("zarr.json"),
             serde_json::to_string(&array).expect("serialize array metadata"),
@@ -827,6 +838,18 @@ mod tests {
             .map(|v| v.name.as_str())
             .collect();
         assert_eq!(names, vec!["mydata"]);
+
+        // The array's attributes are the variable's, not the synthetic root
+        // group's: they used to be attached to both and so rendered twice.
+        assert_eq!(
+            summary.root.data_vars[0].attrs,
+            vec![("units".to_owned(), AttrValue::Text("m".to_owned()))]
+        );
+        assert!(
+            summary.root.attrs.is_empty(),
+            "root group must not duplicate the array's attrs, got {:?}",
+            summary.root.attrs
+        );
 
         let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
