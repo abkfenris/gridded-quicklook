@@ -219,7 +219,7 @@ fn json_object_to_attrs(map: &serde_json::Map<String, Value>) -> Vec<(String, At
 /// to `_FillValue` only: any short string can *look* like base64, and only
 /// this attribute is known to carry the encoding.
 fn decode_base64_float_attr(key: &str, value: &Value) -> Option<AttrValue> {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     if key != "_FillValue" {
         return None;

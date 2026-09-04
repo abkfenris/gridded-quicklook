@@ -6,7 +6,7 @@
 //! previews are read; bulk variable data is never touched.
 
 use std::collections::HashSet;
-use std::ffi::{c_int, CString};
+use std::ffi::{CString, c_int};
 use std::path::Path;
 
 // `::netcdf` (leading `::`) disambiguates the external `netcdf` crate from
