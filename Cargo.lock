@@ -663,6 +663,7 @@ dependencies = [
  "icechunk",
  "insta",
  "netcdf",
+ "netcdf-sys",
  "serde",
  "serde_json",
  "thiserror",
