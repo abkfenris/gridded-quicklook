@@ -203,10 +203,16 @@ fn error_card(message: &str) -> String {
 <meta charset=\"utf-8\">\
 <title>Preview unavailable</title>\
 <style>\
+:root {{ color-scheme: light dark; }}\
 body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 24px; color: #1a1a1a; background: #fff; }}\
 .gq-error {{ border: solid 1px #e0b4b4; background: #fdf2f2; border-radius: 6px; padding: 16px 20px; }}\
 .gq-error h1 {{ margin: 0 0 8px 0; font-size: 1.1em; color: #a33; }}\
 .gq-error p {{ margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; white-space: pre-wrap; word-break: break-word; }}\
+@media (prefers-color-scheme: dark) {{\
+body {{ color: #f0f0f0; background: #111; }}\
+.gq-error {{ border-color: #7a3b3b; background: #2a1717; }}\
+.gq-error h1 {{ color: #ff8a80; }}\
+}}\
 </style>\
 </head>\
 <body>\

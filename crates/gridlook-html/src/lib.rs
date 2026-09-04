@@ -24,8 +24,39 @@ const XARRAY_ICONS_SVG: &str = include_str!("../assets/xarray-icons-svg-inline.h
 
 /// Extra styling for the parts of the page that aren't part of xarray's
 /// repr (the footer and the Icechunk version-history card), namespaced
-/// under `gq-` so it can't collide with xarray's `xr-*` classes.
+/// under `gq-` so it can't collide with xarray's `xr-*` classes, plus the
+/// dark-appearance wiring xarray's stylesheet doesn't do on its own.
+///
+/// xarray only switches to its dark palette on notebook-host selectors
+/// (`html[theme="dark"]`, `body.vscode-dark`, ...). Quick Look's WebKit host
+/// sets none of those, but it does report the system appearance through
+/// `prefers-color-scheme`, so the same eight `--xr-*` variables are
+/// redeclared here for dark, with the concrete colours xarray's
+/// `hsl(from #111111 ...)` fallbacks resolve to (the notebook-theme
+/// variables they chain through don't exist in this page). The page body
+/// is painted explicitly from those variables too, since the host draws its
+/// own background behind a transparent body. The copied xarray CSS itself is
+/// left untouched so `mise run sync-xarray-assets` stays a clean overwrite.
 const EXTRA_CSS: &str = r#"
+:root {
+  color-scheme: light dark;
+}
+body {
+  background: var(--xr-background-color, white);
+  color: var(--xr-font-color0, rgba(0, 0, 0, 1));
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --xr-font-color0: rgba(255, 255, 255, 1);
+    --xr-font-color2: rgba(255, 255, 255, 0.54);
+    --xr-font-color3: rgba(255, 255, 255, 0.38);
+    --xr-border-color: #2b2b2b;
+    --xr-disabled-color: #777777;
+    --xr-background-color: #111111;
+    --xr-background-color-row-even: #1e1e1e;
+    --xr-background-color-row-odd: #383838;
+  }
+}
 .gq-footer {
   margin-top: 8px;
   padding-top: 6px;
