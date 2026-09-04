@@ -1,0 +1,32 @@
+name: Pre-commit (Prek)
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Run pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          # 2026.8+: honors the `components` list on mise.toml's rust tool,
+          # which the cargo-fmt/clippy hooks need (mise sets RUSTUP_TOOLCHAIN,
+          # which overrides rust-toolchain.toml, so components must come from
+          # the mise rust install itself).
+          version: 2026.8.3
+      - name: Run pre-commit
+        run: |
+          prek run \
+          --show-diff-on-failure \
+          --color always \
+          --all-files

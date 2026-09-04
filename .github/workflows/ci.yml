@@ -23,11 +23,6 @@ jobs:
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          # 2026.8+: honors the `components` list on mise.toml's rust tool,
-          # which the cargo-fmt/clippy hooks need (mise sets RUSTUP_TOOLCHAIN,
-          # which overrides rust-toolchain.toml, so components must come from
-          # the mise rust install itself).
-          version: 2026.8.3
           install: true
           cache: true
 
@@ -36,9 +31,6 @@ jobs:
 
       - name: mise run test
         run: mise run test
-
-      - name: prek run --all-files
-        run: prek run --all-files
 
   macos:
     name: macos
