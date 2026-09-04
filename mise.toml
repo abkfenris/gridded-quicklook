@@ -25,6 +25,14 @@ run = "fixtures/generate.py"
 sources = ["fixtures/generate.py"]
 outputs = ["fixtures/data/**/*", "fixtures/reference/*"]
 
+[tasks.dump]
+description = "Run the gridlook CLI's dump subcommand (ncdump-style header): mise run dump -- [-h] [-s] [-k] SOURCE"
+run = "cargo run -q -p gridlook-cli --bin gridlook -- dump"
+
+[tasks.install-cli]
+description = "Build and install the gridlook CLI into ~/.cargo/bin"
+run = "cargo install --path crates/gridlook-cli --locked"
+
 [tasks.sync-xarray-assets]
 description = "Sync xarray's HTML repr CSS/SVG assets (fetched from a pinned GitHub tag) into crates/gridlook-html"
 run = "./crates/gridlook-html/sync_xarray_assets.py"
