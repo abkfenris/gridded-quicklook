@@ -1,0 +1,16 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header(\"filters_v2.zarr\")"
+---
+netcdf filters_v2 {
+dimensions:
+	x = 3 ;
+	y = 2 ;
+variables:
+	short counts(x, y) ;
+		counts:units = "count" ;
+	char labels(x) ;
+
+// global attributes:
+		:title = "gridlook filters fixture" ;
+}

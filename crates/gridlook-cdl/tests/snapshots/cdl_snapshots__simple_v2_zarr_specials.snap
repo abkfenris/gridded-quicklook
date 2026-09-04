@@ -1,0 +1,56 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header_with_specials(\"simple_v2.zarr\")"
+---
+netcdf simple_v2 {
+dimensions:
+	time = 4 ;
+	x = 3 ;
+	y = 2 ;
+variables:
+	float salinity(time, x, y) ;
+		salinity:long_name = "Sea Water Salinity" ;
+		salinity:units = "psu" ;
+		salinity:_Storage = "chunked" ;
+		salinity:_ChunkSizes = 4, 3, 2 ;
+		salinity:_Endianness = "little" ;
+		salinity:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
+		salinity:_FillValue = NaNf ;
+		salinity:_Order = "C" ;
+		salinity:_ChunkKeyEncoding = "v2." ;
+	float temperature(time, x, y) ;
+		temperature:long_name = "Sea Water Temperature" ;
+		temperature:units = "degC" ;
+		temperature:_Storage = "chunked" ;
+		temperature:_ChunkSizes = 4, 3, 2 ;
+		temperature:_Endianness = "little" ;
+		temperature:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
+		temperature:_FillValue = NaNf ;
+		temperature:_Order = "C" ;
+		temperature:_ChunkKeyEncoding = "v2." ;
+	int64 time(time) ;
+		time:calendar = "proleptic_gregorian" ;
+		time:units = "days since 2024-01-01 00:00:00" ;
+		time:_Storage = "chunked" ;
+		time:_ChunkSizes = 4 ;
+		time:_Endianness = "little" ;
+		time:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
+		time:_Order = "C" ;
+		time:_ChunkKeyEncoding = "v2." ;
+	float x(x) ;
+		x:long_name = "Cross-shore distance" ;
+		x:units = "km" ;
+		x:_Storage = "chunked" ;
+		x:_ChunkSizes = 3 ;
+		x:_Endianness = "little" ;
+		x:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
+		x:_FillValue = NaNf ;
+		x:_Order = "C" ;
+		x:_ChunkKeyEncoding = "v2." ;
+
+// global attributes:
+		:conventions = "CF-1.8" ;
+		:institution = "NERACOOS" ;
+		:title = "gridlook simple fixture" ;
+		:_Format = "Zarr v2" ;
+}

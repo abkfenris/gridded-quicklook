@@ -1,0 +1,58 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header_with_specials(\"icechunk_repo.icechunk\")"
+---
+netcdf icechunk_repo {
+dimensions:
+	time = 4 ;
+	x = 3 ;
+	y = 2 ;
+variables:
+	float salinity(time, x, y) ;
+		salinity:_FillValue = NaN ;
+		salinity:long_name = "Sea Water Salinity" ;
+		salinity:units = "psu" ;
+		salinity:_Storage = "chunked" ;
+		salinity:_ChunkSizes = 4, 3, 2 ;
+		salinity:_Endianness = "little" ;
+		salinity:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
+		salinity:_ChunkKeyEncoding = "default/" ;
+	float temperature(time, x, y) ;
+		temperature:_FillValue = NaN ;
+		temperature:long_name = "Sea Water Temperature" ;
+		temperature:units = "degC" ;
+		temperature:_Storage = "chunked" ;
+		temperature:_ChunkSizes = 4, 3, 2 ;
+		temperature:_Endianness = "little" ;
+		temperature:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
+		temperature:_ChunkKeyEncoding = "default/" ;
+	int64 time(time) ;
+		time:calendar = "proleptic_gregorian" ;
+		time:units = "days since 2024-01-01 00:00:00" ;
+		time:_Storage = "chunked" ;
+		time:_ChunkSizes = 4 ;
+		time:_Endianness = "little" ;
+		time:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
+		time:_FillValue = 0 ;
+		time:_ChunkKeyEncoding = "default/" ;
+	float x(x) ;
+		x:_FillValue = NaN ;
+		x:long_name = "Cross-shore distance" ;
+		x:units = "km" ;
+		x:_Storage = "chunked" ;
+		x:_ChunkSizes = 3 ;
+		x:_Endianness = "little" ;
+		x:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
+		x:_ChunkKeyEncoding = "default/" ;
+
+// global attributes:
+		:conventions = "CF-1.8" ;
+		:institution = "NERACOOS" ;
+		:revision_note = "updated global attrs" ;
+		:title = "gridlook simple fixture" ;
+		:_Format = "Icechunk" ;
+		:_IcechunkBranch = "main" ;
+		:_IcechunkSnapshot = "[snapshot-id]" ;
+		:_IcechunkMessage = "update global attrs" ;
+		:_IcechunkWroteAt = "[timestamp]" ;
+}
