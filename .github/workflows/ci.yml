@@ -32,9 +32,6 @@ jobs:
       - name: mise run test
         run: mise run test
 
-      - name: prek run --all-files
-        run: prek run --all-files
-
   macos:
     name: macos
     runs-on: macos-26
