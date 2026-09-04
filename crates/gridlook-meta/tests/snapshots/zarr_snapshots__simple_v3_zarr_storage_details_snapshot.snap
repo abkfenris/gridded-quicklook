@@ -1,0 +1,267 @@
+---
+source: crates/gridlook-meta/tests/zarr_snapshots.rs
+expression: summary
+---
+{
+  "format": "ZarrV3",
+  "root": {
+    "name": "",
+    "dims": [
+      {
+        "name": "time",
+        "size": 4,
+        "is_unlimited": false
+      },
+      {
+        "name": "x",
+        "size": 3,
+        "is_unlimited": false
+      },
+      {
+        "name": "y",
+        "size": 2,
+        "is_unlimited": false
+      }
+    ],
+    "coords": [
+      {
+        "name": "time",
+        "dtype": "int64",
+        "dims": [
+          "time"
+        ],
+        "shape": [
+          4
+        ],
+        "chunks": [
+          4
+        ],
+        "attrs": [
+          [
+            "calendar",
+            "proleptic_gregorian"
+          ],
+          [
+            "units",
+            "days since 2024-01-01 00:00:00"
+          ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": 0,
+          "chunk_key_encoding": "default/"
+        }
+      },
+      {
+        "name": "x",
+        "dtype": "float32",
+        "dims": [
+          "x"
+        ],
+        "shape": [
+          3
+        ],
+        "chunks": [
+          3
+        ],
+        "attrs": [
+          [
+            "_FillValue",
+            null
+          ],
+          [
+            "long_name",
+            "Cross-shore distance"
+          ],
+          [
+            "units",
+            "km"
+          ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": null,
+          "chunk_key_encoding": "default/"
+        }
+      }
+    ],
+    "data_vars": [
+      {
+        "name": "salinity",
+        "dtype": "float32",
+        "dims": [
+          "time",
+          "x",
+          "y"
+        ],
+        "shape": [
+          4,
+          3,
+          2
+        ],
+        "chunks": [
+          4,
+          3,
+          2
+        ],
+        "attrs": [
+          [
+            "_FillValue",
+            null
+          ],
+          [
+            "long_name",
+            "Sea Water Salinity"
+          ],
+          [
+            "units",
+            "psu"
+          ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": null,
+          "chunk_key_encoding": "default/"
+        }
+      },
+      {
+        "name": "temperature",
+        "dtype": "float32",
+        "dims": [
+          "time",
+          "x",
+          "y"
+        ],
+        "shape": [
+          4,
+          3,
+          2
+        ],
+        "chunks": [
+          4,
+          3,
+          2
+        ],
+        "attrs": [
+          [
+            "_FillValue",
+            null
+          ],
+          [
+            "long_name",
+            "Sea Water Temperature"
+          ],
+          [
+            "units",
+            "degC"
+          ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": null,
+          "chunk_key_encoding": "default/"
+        }
+      }
+    ],
+    "attrs": [
+      [
+        "conventions",
+        "CF-1.8"
+      ],
+      [
+        "institution",
+        "NERACOOS"
+      ],
+      [
+        "title",
+        "gridlook simple fixture"
+      ]
+    ],
+    "children": [],
+    "var_order": [
+      "salinity",
+      "temperature",
+      "time",
+      "x"
+    ]
+  },
+  "file_info": {
+    "kind": "Zarr v3"
+  }
+}

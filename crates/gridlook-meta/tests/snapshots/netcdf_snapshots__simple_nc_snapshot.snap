@@ -148,6 +148,12 @@ expression: summary
         "CF-1.8"
       ]
     ],
-    "children": []
+    "children": [],
+    "var_order": [
+      "temperature",
+      "salinity",
+      "time",
+      "x"
+    ]
   }
 }

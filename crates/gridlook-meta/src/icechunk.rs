@@ -38,22 +38,30 @@ pub fn is_icechunk_repo(path: &Path) -> bool {
 }
 
 #[cfg(feature = "icechunk")]
-pub use enabled::summarize_icechunk;
+pub use enabled::{
+    summarize_icechunk, summarize_icechunk_storage, summarize_icechunk_storage_async,
+    summarize_icechunk_with,
+};
 
 #[cfg(feature = "icechunk")]
 mod enabled {
     use std::collections::BTreeMap;
     use std::path::Path;
+    use std::sync::Arc;
 
     use icechunk::Repository;
     use icechunk::format::snapshot::NodeSnapshot;
     use icechunk::format::{Path as IcePath, SnapshotId};
     use icechunk::repository::VersionInfo as IceVersionInfo;
+    use icechunk::storage::Storage;
     use zarrs_metadata::v3::NodeMetadataV3;
 
     use crate::error::MetaError;
-    use crate::model::{DatasetSummary, GroupSummary, SnapshotInfo, SourceFormat, VersionInfo};
-    use crate::zarr::{build_group_summary, empty_v3_group_node, v3_node_attrs, v3_var_summary};
+    use crate::model::{
+        DatasetSummary, FileInfo, GroupSummary, SnapshotInfo, SourceFormat, SummarizeOptions,
+        VersionInfo,
+    };
+    use crate::zarr::{FlatNode, build_tree_from_flat, v3_var_summary, zarr_kind_string};
 
     /// The branch previewed for a repo. Icechunk has no configurable default
     /// branch (unlike git), so `main` is the only tip worth resolving.
@@ -70,51 +78,92 @@ mod enabled {
     ///
     /// The repo is opened read-only against local-filesystem storage; no
     /// network backends are contacted and no chunk data is read.
+    pub fn summarize_icechunk(path: &Path) -> Result<DatasetSummary, MetaError> {
+        summarize_icechunk_with(path, &SummarizeOptions::default())
+    }
+
+    /// [`summarize_icechunk`] with control over how much detail is gathered.
+    pub fn summarize_icechunk_with(
+        path: &Path,
+        opts: &SummarizeOptions,
+    ) -> Result<DatasetSummary, MetaError> {
+        let location = path.display().to_string();
+        let runtime = build_runtime(&location)?;
+        runtime.block_on(async {
+            let storage = icechunk::new_local_filesystem_storage(path)
+                .await
+                .map_err(|err| {
+                    invalid(&location, format!("cannot open Icechunk storage: {err}"))
+                })?;
+            summarize_icechunk_storage_async(storage, &location, opts).await
+        })
+    }
+
+    /// Summarize the repo behind an already-constructed Icechunk `storage`
+    /// (local, S3, GCS, Azure, HTTP, ...). `location` is only used in error
+    /// messages.
     ///
     /// The whole async pipeline is driven by a private current-thread Tokio
     /// runtime created per call, so this stays an ordinary blocking function
-    /// callable straight from the FFI layer.
-    pub fn summarize_icechunk(path: &Path) -> Result<DatasetSummary, MetaError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+    /// callable straight from the FFI layer or the CLI.
+    pub fn summarize_icechunk_storage(
+        storage: Arc<dyn Storage + Send + Sync>,
+        location: &str,
+        opts: &SummarizeOptions,
+    ) -> Result<DatasetSummary, MetaError> {
+        let runtime = build_runtime(location)?;
+        runtime.block_on(summarize_icechunk_storage_async(storage, location, opts))
+    }
+
+    fn build_runtime(location: &str) -> Result<tokio::runtime::Runtime, MetaError> {
+        tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|source| MetaError::Io {
-                path: path.to_path_buf(),
+                location: location.to_owned(),
                 source,
-            })?;
-        runtime.block_on(summarize(path))
+            })
     }
 
-    async fn summarize(path: &Path) -> Result<DatasetSummary, MetaError> {
-        let storage = icechunk::new_local_filesystem_storage(path)
-            .await
-            .map_err(|err| invalid(path, format!("cannot open Icechunk storage: {err}")))?;
+    /// Async form of [`summarize_icechunk_storage`], for callers that already
+    /// run a Tokio runtime (the remote-source layer shares one runtime
+    /// between building the storage and reading the repo).
+    pub async fn summarize_icechunk_storage_async(
+        storage: Arc<dyn Storage + Send + Sync>,
+        location: &str,
+        opts: &SummarizeOptions,
+    ) -> Result<DatasetSummary, MetaError> {
         let repo = Repository::open(None, storage, Default::default())
             .await
-            .map_err(|err| invalid(path, format!("cannot open Icechunk repository: {err}")))?;
+            .map_err(|err| invalid(location, format!("cannot open Icechunk repository: {err}")))?;
 
         let tip = repo.lookup_branch(DEFAULT_BRANCH).await.map_err(|err| {
             invalid(
-                path,
+                location,
                 format!("cannot resolve branch \"{DEFAULT_BRANCH}\": {err}"),
             )
         })?;
 
-        let (ancestry, truncated) = collect_ancestry(&repo, path, &tip).await?;
+        let (ancestry, truncated) = collect_ancestry(&repo, location, &tip).await?;
 
         let session = repo
             .readonly_session(&IceVersionInfo::SnapshotId(tip.clone()))
             .await
-            .map_err(|err| invalid(path, format!("cannot open a read-only session: {err}")))?;
+            .map_err(|err| invalid(location, format!("cannot open a read-only session: {err}")))?;
 
         let nodes: Vec<NodeSnapshot> = session
             .list_nodes(&IcePath::root())
             .await
-            .map_err(|err| invalid(path, format!("cannot list repository nodes: {err}")))?
+            .map_err(|err| invalid(location, format!("cannot list repository nodes: {err}")))?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| invalid(path, format!("cannot read a repository node: {err}")))?;
+            .map_err(|err| invalid(location, format!("cannot read a repository node: {err}")))?;
 
-        let root = build_tree(path, &nodes)?;
+        let root = build_tree(location, &nodes, opts)?;
+
+        let file_info = opts.storage_details.then(|| FileInfo {
+            kind: zarr_kind_string(SourceFormat::Icechunk).to_owned(),
+            ..FileInfo::default()
+        });
 
         Ok(DatasetSummary {
             format: SourceFormat::Icechunk,
@@ -124,6 +173,7 @@ mod enabled {
                 ancestry,
                 truncated,
             }),
+            file_info,
         })
     }
 
@@ -138,7 +188,7 @@ mod enabled {
     /// lookups against already-cached repo metadata.
     async fn collect_ancestry(
         repo: &Repository,
-        path: &Path,
+        location: &str,
         tip: &SnapshotId,
     ) -> Result<(Vec<SnapshotInfo>, bool), MetaError> {
         let mut entries = Vec::new();
@@ -152,7 +202,7 @@ mod enabled {
             let info = repo
                 .lookup_snapshot(&id)
                 .await
-                .map_err(|err| invalid(path, format!("cannot read snapshot {id}: {err}")))?;
+                .map_err(|err| invalid(location, format!("cannot read snapshot {id}: {err}")))?;
             entries.push(SnapshotInfo {
                 id: info.id.to_string(),
                 message: if info.message.is_empty() {
@@ -171,92 +221,52 @@ mod enabled {
     /// list.
     ///
     /// `list_nodes` returns every node in the snapshot (root included) keyed
-    /// by absolute Zarr path, so the hierarchy is recovered by grouping each
-    /// node under its parent path rather than by walking storage.
-    fn build_tree(path: &Path, nodes: &[NodeSnapshot]) -> Result<GroupSummary, MetaError> {
-        // Absolute node path -> (leaf name, node). Ordered so that group
-        // children and variables come out alphabetically before
-        // `build_group_summary` does its own sorting.
-        let mut by_path: BTreeMap<String, &NodeSnapshot> = BTreeMap::new();
-        for node in nodes {
-            by_path.insert(normalize_path(&node.path.to_string()), node);
-        }
-
-        let root_meta = match by_path.get("") {
-            Some(node) => parse_node(path, node)?,
-            // A repo whose root group was never written has no root node;
-            // present it as an empty, attribute-less root group.
-            None => empty_v3_group_node(),
-        };
-        build_group(path, "", String::new(), &root_meta, &by_path)
-    }
-
-    fn build_group(
-        repo_path: &Path,
-        node_path: &str,
-        name: String,
-        meta: &NodeMetadataV3,
-        by_path: &BTreeMap<String, &NodeSnapshot>,
+    /// by absolute Zarr path, and each node's `user_data` is the verbatim
+    /// Zarr v3 `zarr.json` document, so this is the same flat-nodes-to-tree
+    /// problem as consolidated Zarr metadata and shares its builder.
+    fn build_tree(
+        location: &str,
+        nodes: &[NodeSnapshot],
+        opts: &SummarizeOptions,
     ) -> Result<GroupSummary, MetaError> {
-        let prefix = if node_path.is_empty() {
-            String::new()
-        } else {
-            format!("{node_path}/")
-        };
-
-        let mut vars = Vec::new();
-        let mut children = Vec::new();
-        for (child_path, child) in by_path {
-            let Some(rest) = child_path.strip_prefix(&prefix) else {
-                continue;
+        let mut flat: BTreeMap<String, FlatNode> = BTreeMap::new();
+        for node in nodes {
+            let path = normalize_path(&node.path.to_string());
+            let node_location = format!("{}/{path}", location.trim_end_matches('/'));
+            let meta: NodeMetadataV3 =
+                serde_json::from_slice(&node.user_data).map_err(|source| MetaError::Json {
+                    location: node_location.clone(),
+                    source,
+                })?;
+            let leaf = path.rsplit('/').next().unwrap_or(&path).to_owned();
+            let entry = match meta {
+                NodeMetadataV3::Array(array) => FlatNode::Array(Box::new(v3_var_summary(
+                    leaf,
+                    &array,
+                    &node_location,
+                    opts,
+                )?)),
+                NodeMetadataV3::Group(group) => FlatNode::Group {
+                    attrs: group.attributes,
+                },
             };
-            if rest.is_empty() || rest.contains('/') {
-                continue;
-            }
-            let child_meta = parse_node(repo_path, child)?;
-            match &child_meta {
-                NodeMetadataV3::Array(array) => vars.push(v3_var_summary(
-                    rest.to_owned(),
-                    array,
-                    Path::new(child_path),
-                )?),
-                NodeMetadataV3::Group(_) => children.push(build_group(
-                    repo_path,
-                    child_path,
-                    rest.to_owned(),
-                    &child_meta,
-                    by_path,
-                )?),
-            }
+            flat.insert(path, entry);
         }
-
-        Ok(build_group_summary(
-            name,
-            v3_node_attrs(meta),
-            vars,
-            children,
-        ))
-    }
-
-    /// A node's `user_data` is the Zarr v3 `zarr.json` document verbatim, so
-    /// it deserializes straight into the shared v3 node model.
-    fn parse_node(repo_path: &Path, node: &NodeSnapshot) -> Result<NodeMetadataV3, MetaError> {
-        serde_json::from_slice(&node.user_data).map_err(|source| MetaError::Json {
-            path: repo_path.join(node.path.to_string().trim_start_matches('/')),
-            source,
-        })
+        // A repo whose root group was never written has no root node; the
+        // builder then presents an empty, attribute-less root group.
+        Ok(build_tree_from_flat(&flat))
     }
 
     /// Icechunk paths are absolute (`/`, `/group_a/nested`); strip the
     /// leading slash so the root becomes `""` and the prefix arithmetic
-    /// above matches the plain-Zarr reader's relative-path convention.
+    /// matches the plain-Zarr reader's relative-path convention.
     fn normalize_path(path: &str) -> String {
         path.trim_start_matches('/').to_owned()
     }
 
-    fn invalid(path: &Path, message: String) -> MetaError {
+    fn invalid(location: &str, message: String) -> MetaError {
         MetaError::Icechunk {
-            path: path.to_path_buf(),
+            location: location.to_owned(),
             message,
         }
     }

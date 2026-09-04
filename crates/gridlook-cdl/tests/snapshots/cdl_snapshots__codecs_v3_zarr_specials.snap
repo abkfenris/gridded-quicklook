@@ -1,0 +1,22 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header_with_specials(\"codecs_v3.zarr\")"
+---
+netcdf codecs_v3 {
+dimensions:
+	x = 3 ;
+	y = 2 ;
+variables:
+	float pressure(x, y) ;
+		pressure:units = "hPa" ;
+		pressure:_Storage = "chunked" ;
+		pressure:_ChunkSizes = 3, 1 ;
+		pressure:_Endianness = "big" ;
+		pressure:_Codecs = "bytes({\"endian\":\"big\"})", "zstd({\"level\":3,\"checksum\":false})" ;
+		pressure:_FillValue = NaNf ;
+		pressure:_ChunkKeyEncoding = "default/" ;
+
+// global attributes:
+		:title = "gridlook codecs fixture" ;
+		:_Format = "Zarr v3" ;
+}

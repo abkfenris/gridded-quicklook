@@ -97,3 +97,33 @@ fn simple_nc_coords_match_xarray_reference() {
     assert!(summary.root.dims.iter().any(|d| d.name == "y"));
     assert!(!coord_names.contains(&"y"));
 }
+
+/// With storage details requested, every variable carries its layout /
+/// compression / endianness and the summary carries the file kind — the
+/// payload behind `ncdump -s`.
+#[test]
+fn simple_nc_storage_details_snapshot() {
+    use gridlook_meta::{StorageLayout, SummarizeOptions, summarize_netcdf_with};
+
+    let opts = SummarizeOptions {
+        storage_details: true,
+    };
+    let summary = summarize_netcdf_with(&fixture("simple.nc"), &opts).expect("summarize simple.nc");
+
+    let info = summary.file_info.as_ref().expect("file info is populated");
+    assert_eq!(info.kind, "netCDF-4");
+    let temperature = summary
+        .root
+        .variable("temperature")
+        .expect("temperature exists");
+    assert_eq!(
+        temperature.storage.as_ref().and_then(|s| s.layout),
+        Some(StorageLayout::Chunked)
+    );
+
+    // `_NCProperties` embeds the writing library's versions, which change
+    // whenever the fixture generator's pinned deps move; redact it.
+    insta::assert_json_snapshot!(summary, {
+        ".file_info.nc_properties" => "[nc-properties]",
+    });
+}

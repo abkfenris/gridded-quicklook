@@ -1,0 +1,31 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header(\"simple_v3.zarr\")"
+---
+netcdf simple_v3 {
+dimensions:
+	time = 4 ;
+	x = 3 ;
+	y = 2 ;
+variables:
+	float salinity(time, x, y) ;
+		salinity:_FillValue = NaN ;
+		salinity:long_name = "Sea Water Salinity" ;
+		salinity:units = "psu" ;
+	float temperature(time, x, y) ;
+		temperature:_FillValue = NaN ;
+		temperature:long_name = "Sea Water Temperature" ;
+		temperature:units = "degC" ;
+	int64 time(time) ;
+		time:calendar = "proleptic_gregorian" ;
+		time:units = "days since 2024-01-01 00:00:00" ;
+	float x(x) ;
+		x:_FillValue = NaN ;
+		x:long_name = "Cross-shore distance" ;
+		x:units = "km" ;
+
+// global attributes:
+		:conventions = "CF-1.8" ;
+		:institution = "NERACOOS" ;
+		:title = "gridlook simple fixture" ;
+}

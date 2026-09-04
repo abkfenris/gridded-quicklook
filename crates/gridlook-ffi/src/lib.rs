@@ -16,25 +16,13 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
 use gridlook_html::{html_escape, render_page};
-use gridlook_meta::{
-    DatasetSummary, MetaError, is_icechunk_repo, summarize_icechunk, summarize_netcdf,
-    summarize_zarr,
-};
+use gridlook_meta::{SummarizeOptions, detect_local_kind, summarize_path};
 
 /// A fixed, dynamic-content-free fallback used only if we somehow fail to
 /// build even the ordinary error card (e.g. because the underlying message
 /// contained a NUL byte). This string is a compile-time constant, so it can
 /// never itself trip that failure mode.
 const FALLBACK_ERROR_HTML: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Preview unavailable</title></head><body><div class=\"gq-error\"><h1>Preview unavailable</h1><p>An internal error occurred while rendering this preview.</p></div></body></html>";
-
-/// File extensions (lowercased, without the leading dot) that we currently
-/// route through `gridlook-meta`'s NetCDF/HDF5 reader.
-const NETCDF_LIKE_EXTENSIONS: &[&str] = &["nc", "nc4", "cdf", "h5", "hdf5", "he5"];
-
-/// Root-level entries that mark a directory as a Zarr store: a v3 node
-/// document, a v2 group marker, or v2 consolidated metadata. Checked with a
-/// handful of `stat` calls -- never by walking the store.
-const ZARR_ROOT_MARKERS: &[&str] = &["zarr.json", ".zgroup", ".zarray", ".zmetadata"];
 
 /// Renders an HTML QuickLook preview for the file at `path`.
 ///
@@ -99,28 +87,21 @@ fn render_html_inner(path: *const c_char) -> String {
     };
     let path = Path::new(path_str);
 
-    let summary = if path.is_dir() {
-        match summarize_directory_store(path) {
-            Some(result) => result,
-            None => {
-                return error_card(
-                    "Unsupported folder: not a Zarr store or an Icechunk repository.",
-                );
+    // Files are routed by extension and directories by their contents (see
+    // `gridlook_meta::dispatch`); anything unclaimed becomes a card that
+    // says what kind of thing was expected.
+    let Some(kind) = detect_local_kind(path) else {
+        return if path.is_dir() {
+            error_card("Unsupported folder: not a Zarr store or an Icechunk repository.")
+        } else {
+            match path.extension().and_then(|e| e.to_str()) {
+                Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
+                None => error_card("Unsupported file: no recognizable file extension."),
             }
-        }
-    } else {
-        match summarize_file(path) {
-            Some(result) => result,
-            None => {
-                return match path.extension().and_then(|e| e.to_str()) {
-                    Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
-                    None => error_card("Unsupported file: no recognizable file extension."),
-                };
-            }
-        }
+        };
     };
 
-    let summary = match summary {
+    let summary = match summarize_path(path, Some(kind), &SummarizeOptions::default()) {
         Ok(summary) => summary,
         Err(err) => return error_card(&format!("{err}")),
     };
@@ -139,42 +120,6 @@ fn render_html_inner(path: *const c_char) -> String {
         .unwrap_or(path_str);
 
     render_page(&summary, source_name, file_size)
-}
-
-/// Routes a regular file by extension. `None` means "no reader claims this
-/// extension", which the caller turns into an "unsupported file type" card.
-fn summarize_file(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)?;
-
-    if NETCDF_LIKE_EXTENSIONS.contains(&extension.as_str()) {
-        return Some(summarize_netcdf(path));
-    }
-    None
-}
-
-/// Routes a directory by what it contains rather than by its extension:
-/// Finder shows `.zarr`/`.icechunk` bundles as packages, but a store may
-/// equally well be named anything at all. `None` means the directory is
-/// neither an Icechunk repo nor a Zarr store.
-fn summarize_directory_store(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
-    // Zarr's root markers are checked first: they are definitive files at
-    // the root, while `is_icechunk_repo` is a directory-layout sniff that a
-    // Zarr store could satisfy by coincidence (child groups named
-    // `snapshots`/`transactions`/`refs`). An Icechunk repo root never
-    // contains a Zarr root marker, so this ordering misroutes neither.
-    if ZARR_ROOT_MARKERS
-        .iter()
-        .any(|marker| path.join(marker).is_file())
-    {
-        return Some(summarize_zarr(path));
-    }
-    if is_icechunk_repo(path) {
-        return Some(summarize_icechunk(path));
-    }
-    None
 }
 
 /// Converts a Rust `String` into an owned, NUL-terminated C string pointer,

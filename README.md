@@ -1,7 +1,8 @@
 # GridLook
 
 A macOS Quick Look app extension that previews gridded scientific data (NetCDF/HDF5 files, Zarr stores, and Icechunk repositories) as an
-xarray-style dataset repr.
+xarray-style dataset repr, plus a `gridlook` command-line tool that dumps the
+same metadata as `ncdump`-style CDL.
 
 ![Quick Look previewing an Icechunk repository: dimensions, coordinates, data variables, and attributes in xarray's repr style, with the repo's branch, snapshot, and commit ancestry below](docs/quicklook-icechunk.png)
 
@@ -36,13 +37,67 @@ conforming to `com.apple.package`.
 | ---------------------- | ---------------------------------------------------------------- |
 | `crates/gridlook-meta`  | Format readers → a format-agnostic `DatasetSummary`               |
 | `crates/gridlook-html`  | Renders a `DatasetSummary` as a self-contained HTML document      |
+| `crates/gridlook-cdl`   | Renders a `DatasetSummary` as `ncdump`-style CDL text             |
+| `crates/gridlook-cli`   | The `gridlook` command-line tool (`gridlook dump`)                |
 | `crates/gridlook-ffi`   | C ABI (`staticlib`) linked into the app extension                 |
 | `apple/`               | XcodeGen spec, the host app, and the Quick Look preview extension |
 | `fixtures/`            | Fixture generator (`generate.py`); its output is not committed    |
 
 The Icechunk reader lives behind `gridlook-meta`'s non-default `icechunk`
 cargo feature (it pulls in a sizable dependency tree); `gridlook-ffi` enables
-it, so the extension always has it.
+it, so the extension always has it. Remote sources (object stores and HTTP)
+live behind the `remote` feature, which only the CLI enables, so the Quick
+Look extension never builds the cloud client stack.
+
+## Command line
+
+`gridlook dump` prints a dataset's header as CDL, the text format `ncdump`
+uses, for every supported format. `mise run install-cli` builds it and
+installs `gridlook` into `~/.cargo/bin`:
+
+```sh
+mise run install-cli
+gridlook dump -h data/simple.nc            # header, like ncdump -h
+gridlook dump -hs data/store.zarr          # plus storage details (ncdump -s)
+gridlook dump -k data/repo.icechunk        # just the format kind
+mise run dump -- -hs data/simple.nc        # run from the source tree without installing
+```
+
+| Flag                       | Meaning                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `-h`, `--header`           | Header only. This is currently the only mode, so it is also the default.         |
+| `-s`, `--special`          | Add special virtual attributes: `_Storage`, `_ChunkSizes`, `_DeflateLevel`, `_Endianness`, `_Format`, ... For Zarr also `_Codecs`, `_ChunkKeyEncoding`, `_Order`; for Icechunk `_IcechunkBranch`, `_IcechunkSnapshot`, ... |
+| `-k`, `--kind`             | Print only the format kind: `classic`, `netCDF-4`, `Zarr v3`, `Icechunk`, ...   |
+| `-n NAME`, `-g GROUP,...`  | Rename the dataset / print only the named groups, as in `ncdump`.                |
+| `--source-format netcdf\|zarr\|icechunk` | Force a reader instead of detecting the source format. (`--format` is reserved for choosing the *output* format once there is more than CDL.) |
+| `--anonymous`, `--region`, `--endpoint`, `--allow-http` | Object-store access options (see below).                    |
+
+`ncdump`'s data-section flags (`-c`, `-v`, `-x`, `-t`, ...) are recognized but
+rejected with a "not implemented" message: only the header is produced for
+now.
+
+`SOURCE` may be a local file or directory, or a URL:
+
+| URL                                                 | Backend                                         |
+| --------------------------------------------------- | ----------------------------------------------- |
+| `s3://bucket/prefix`, `https://….amazonaws.com/…`   | Amazon S3 (or S3-compatible with `--endpoint`)  |
+| `gs://bucket/prefix`                                | Google Cloud Storage                            |
+| `az://container/prefix`, `https://{account}.blob.core.windows.net/{container}/prefix` | Azure Blob Storage |
+| `http(s)://host/path`                               | Plain HTTP(S)                                   |
+| `file:///path`                                      | Local filesystem                                |
+
+Requests use each provider's default credential chain: environment variables
+(`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`,
+`AZURE_STORAGE_ACCOUNT_NAME`/`AZURE_STORAGE_ACCOUNT_KEY`, ...), instance or
+container metadata, and workload identity. `~/.aws/credentials` profiles are
+**not** read. Pass `--anonymous` (alias `--no-sign-request`) for public data.
+
+Zarr and Icechunk are read one metadata object at a time. Over plain HTTP,
+where directory listing is impossible, a Zarr store needs consolidated
+metadata (`.zmetadata`, or zarr-python 3's inline `consolidated_metadata`);
+Icechunk repositories always work. NetCDF/HDF5 objects are downloaded whole
+to a temporary file before reading, because the statically linked libnetcdf
+is built without byte-range access.
 
 ## Development
 
@@ -65,6 +120,8 @@ generation are usable without Xcode.
 | `mise run lint`               | `cargo fmt --check` + clippy                            |
 | `mise run hooks`              | `prek run --all-files`                                  |
 | `mise run fixtures`           | Generate `fixtures/data` + `fixtures/reference` (untracked) |
+| `mise run dump -- ARGS`       | Run `gridlook dump ARGS` from the source tree (see "Command line") |
+| `mise run install-cli`        | `cargo install` the `gridlook` CLI into `~/.cargo/bin`  |
 | `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `gridlook-html`       |
 | `mise run xcodeproj`          | Generate `apple/GridLook.xcodeproj`             |
 | `mise run build-appex`        | `xcodebuild` the extension (needs full Xcode)           |
@@ -76,8 +133,13 @@ builds it, ad-hoc signs it, and installs it into `~/Applications` (no Apple
 Developer account or provisioning profile required).
 
 Snapshot tests use [insta](https://insta.rs); run `cargo insta review` after
-an intentional change. The Icechunk snapshot redacts snapshot ids and
-timestamps, so regenerating fixtures does not churn it.
+an intentional change. The Icechunk snapshots redact snapshot ids and
+timestamps, so regenerating fixtures does not churn them.
+
+If `ncdump` is on your PATH when fixtures are generated (`brew install
+netcdf`), reference `.cdl` headers are written to `fixtures/reference/` so
+`gridlook dump` output can be diffed against the real thing, e.g.
+`diff fixtures/reference/simple.s.cdl <(mise run dump -- -hs fixtures/data/simple.nc)`.
 
 A `.devcontainer/` is provided for Linux work on the Rust crates. A Mac with
 Xcode is needed to build or run the macOS app extension.
