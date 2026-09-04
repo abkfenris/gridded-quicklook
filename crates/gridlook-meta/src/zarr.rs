@@ -839,7 +839,6 @@ mod tests {
             "root group must not duplicate the array's attrs, got {:?}",
             summary.root.attrs
         );
-
     }
 
     /// Regression test for a consolidated v2 store where an intermediate
