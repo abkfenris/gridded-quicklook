@@ -67,3 +67,103 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+  # Builds the release gridlook-ffi staticlib for this PR and for its base
+  # branch and posts (or updates) one sticky comment with both sizes and the
+  # delta. It runs on Linux as a proxy for the macOS artifact the app
+  # extension actually links: the same object code (libnetcdf, libhdf5, zstd,
+  # icechunk's dependency tree) dominates both, so relative changes track.
+  # Report-only: growth never fails the job.
+  staticlib_size:
+    name: staticlib size
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write # post and update the sticky size-report comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: true
+          cache: true
+
+      - name: Build PR staticlib
+        run: cargo build --release -p gridlook-ffi
+
+      - name: Record PR size
+        id: head
+        run: echo "bytes=$(stat -c%s target/release/libgridlook_ffi.a)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout base branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+          persist-credentials: false
+
+      # Run cargo from the outer checkout, pointed at the base manifest, so
+      # mise resolves this repo's toolchain pins: its config lookup stops at
+      # base/'s own .git boundary, so from inside base/ it would find nothing.
+      - name: Build base staticlib
+        run: cargo build --release -p gridlook-ffi --manifest-path base/Cargo.toml --target-dir base/target
+
+      - name: Record base size
+        id: base
+        run: echo "bytes=$(stat -c%s base/target/release/libgridlook_ffi.a)" >> "$GITHUB_OUTPUT"
+
+      - name: Post size comment
+        # A fork's GITHUB_TOKEN can't write comments; the numbers are still
+        # in the job log above.
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+          BASE_BYTES: ${{ steps.base.outputs.bytes }}
+          HEAD_BYTES: ${{ steps.head.outputs.bytes }}
+        run: |
+          DELTA=$(( HEAD_BYTES - BASE_BYTES ))
+          BASE_MB=$(awk "BEGIN { printf \"%.1f\", $BASE_BYTES / 1048576 }")
+          HEAD_MB=$(awk "BEGIN { printf \"%.1f\", $HEAD_BYTES / 1048576 }")
+          DELTA_MB=$(awk "BEGIN { printf \"%+.1f\", $DELTA / 1048576 }")
+          PCT=$(awk "BEGIN { printf \"%+.1f\", ($DELTA / $BASE_BYTES) * 100 }")
+          ABS_PCT=$(awk "BEGIN { d = ($DELTA / $BASE_BYTES) * 100; if (d < 0) d = -d; printf \"%.1f\", d }")
+
+          if [ "$DELTA" -lt 0 ]; then
+            VERDICT="Size decreased by ${ABS_PCT}%."
+          elif [ "$DELTA" = "0" ]; then
+            VERDICT="No size change."
+          else
+            VERDICT="Size increased by ${ABS_PCT}%."
+          fi
+
+          {
+            echo "<!-- staticlib-size-report -->"
+            echo "## libgridlook_ffi.a size report"
+            echo ""
+            echo "| | Size | Bytes |"
+            echo "|---|---|---|"
+            echo "| Base (\`${BASE_REF}\`) | ${BASE_MB} MiB | ${BASE_BYTES} |"
+            echo "| PR | ${HEAD_MB} MiB | ${HEAD_BYTES} |"
+            echo "| Delta | ${DELTA_MB} MiB (${PCT}%) | ${DELTA} |"
+            echo ""
+            echo "${VERDICT}"
+            echo ""
+            echo "_Release build of \`gridlook-ffi\` on ubuntu-latest, a proxy for the macOS staticlib the app extension links._"
+          } > /tmp/comment.md
+
+          COMMENT_ID=$(gh api \
+            "repos/$GITHUB_REPOSITORY/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | contains("<!-- staticlib-size-report -->"))] | first | .id // empty')
+
+          if [ -n "$COMMENT_ID" ]; then
+            jq -n --rawfile body /tmp/comment.md '{body: $body}' | \
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${COMMENT_ID}" --input -
+          else
+            jq -n --rawfile body /tmp/comment.md '{body: $body}' | \
+              gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUMBER}/comments" --input -
+          fi

@@ -188,7 +188,9 @@ pub fn summarize_variable(ids: &IdGen, name: &str, var: &VarSummary, is_index: b
     let preview = html_escape(preview_text);
     let attrs_ul = summarize_attrs(&var.attrs);
 
-    let mut data_body = html_escape(preview_text);
+    // The data repr shows the same (escaped) preview text, prefixed with
+    // the chunk shape when there is one.
+    let mut data_body = preview.clone();
     if let Some(chunks) = &var.chunks {
         let chunks_str = chunks
             .iter()
