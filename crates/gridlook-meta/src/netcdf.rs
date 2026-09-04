@@ -205,11 +205,7 @@ fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary
     let chunks = var.chunking().ok().flatten();
     let chunks = chunks.map(|c| c.into_iter().map(|x| x as u64).collect());
     let attrs = var.attributes().map(|a| attr_entry(&a, path)).collect();
-    let preview = if is_coord {
-        preview_values(var, path)?
-    } else {
-        None
-    };
+    let preview = if is_coord { preview_values(var) } else { None };
 
     Ok(VarSummary {
         name,
@@ -252,29 +248,33 @@ fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
 /// `10.0 12.5 15.0 ... 42.0`. Never reads data for larger variables, and
 /// never CF-decodes datetimes (units containing "since") — that's left for
 /// a later milestone.
-fn preview_values(var: &Variable, path: &Path) -> Result<Option<String>, MetaError> {
+///
+/// This is the only place the reader touches variable *data*, and it is
+/// purely cosmetic, so a failed read must not take down the whole summary:
+/// the values are simply not previewed. The realistic failure is an HDF5
+/// filter plugin the statically linked libnetcdf doesn't ship (zstd, blosc,
+/// ...) on a compressed coordinate, which would otherwise turn a perfectly
+/// readable file's preview into an error card.
+fn preview_values(var: &Variable) -> Option<String> {
     let dims = var.dimensions();
     if dims.len() != 1 {
-        return Ok(None);
+        return None;
     }
     let len = dims[0].len();
     if len == 0 || len > 64 {
-        return Ok(None);
+        return None;
     }
 
     let is_float = match var.vartype() {
         NcVariableType::Float(_) => true,
         NcVariableType::Int(_) => false,
         // Text and user-defined types aren't previewed here.
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    let values: Vec<f64> = var.get_values(..).map_err(|source| MetaError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let values: Vec<f64> = var.get_values(..).ok()?;
 
-    Ok(Some(format_preview(&values, is_float)))
+    Some(format_preview(&values, is_float))
 }
 
 fn format_preview(values: &[f64], is_float: bool) -> String {
