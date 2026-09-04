@@ -31,15 +31,21 @@ pub fn summarize_netcdf(path: &Path) -> Result<DatasetSummary, MetaError> {
 
     let root = match file.root() {
         // netCDF-4 (and netCDF-4 classic) files expose a proper group tree.
-        Some(group) => summarize_group(&group, true, path)?,
+        Some(group) => summarize_group(&group, true),
         // Classic/64-bit-offset/CDF5 files have no group API; fall back to
         // the flat file-level variable/attribute accessors for a single,
         // childless root group.
         None => {
             let dims: Vec<DimInfo> = file.dimensions().map(|d| dim_info(&d)).collect();
-            let vars = collect_var_summaries(file.variables(), file.variables(), path)?;
-            let attrs = file.attributes().map(|a| attr_entry(&a, path)).collect();
-            GroupSummary::from_parts(String::new(), Some(dims), attrs, vars, Vec::new())
+            let vars: Vec<Variable> = file.variables().collect();
+            let attrs = file.attributes().map(|a| attr_entry(&a)).collect();
+            GroupSummary::from_parts(
+                String::new(),
+                Some(dims),
+                attrs,
+                collect_var_summaries(&vars),
+                Vec::new(),
+            )
         }
     };
 
@@ -50,26 +56,20 @@ pub fn summarize_netcdf(path: &Path) -> Result<DatasetSummary, MetaError> {
     })
 }
 
-fn summarize_group(group: &Group, is_root: bool, path: &Path) -> Result<GroupSummary, MetaError> {
+fn summarize_group(group: &Group, is_root: bool) -> GroupSummary {
     let dims: Vec<DimInfo> = group.dimensions().map(|d| dim_info(&d)).collect();
-
-    let vars = collect_var_summaries(group.variables(), group.variables(), path)?;
-
-    let attrs = group.attributes().map(|a| attr_entry(&a, path)).collect();
-
-    let children = group
-        .groups()
-        .map(|g| summarize_group(&g, false, path))
-        .collect::<Result<_, _>>()?;
+    let vars: Vec<Variable> = group.variables().collect();
+    let attrs = group.attributes().map(|a| attr_entry(&a)).collect();
+    let children = group.groups().map(|g| summarize_group(&g, false)).collect();
 
     let name = if is_root { String::new() } else { group.name() };
-    Ok(GroupSummary::from_parts(
+    GroupSummary::from_parts(
         name,
         Some(dims),
         attrs,
-        vars,
+        collect_var_summaries(&vars),
         children,
-    ))
+    )
 }
 
 /// Builds each variable's [`VarSummary`] in a scope (group or, for
@@ -80,32 +80,22 @@ fn summarize_group(group: &Group, is_root: bool, path: &Path) -> Result<GroupSum
 /// [`GroupSummary`] is (re)computed identically by
 /// [`GroupSummary::from_parts`]; this earlier pass exists solely to gate
 /// that expensive read, not to classify for display purposes.
-///
-/// Takes two iterators over the same variable set (rather than one
-/// `Clone`-able iterator) because callers source them from `Group`/`File`
-/// methods that return a fresh `impl Iterator` each call; the first pass
-/// collects `coordinates`-attribute names, the second builds summaries.
-fn collect_var_summaries<'a>(
-    for_coord_names: impl Iterator<Item = Variable<'a>>,
-    variables: impl Iterator<Item = Variable<'a>>,
-    path: &Path,
-) -> Result<Vec<VarSummary>, MetaError> {
+fn collect_var_summaries(variables: &[Variable]) -> Vec<VarSummary> {
     let mut coord_names: HashSet<String> = HashSet::new();
-    for var in for_coord_names {
+    for var in variables {
         if let Some(Ok(AttributeValue::Str(names))) = var.attribute_value("coordinates") {
             coord_names.extend(names.split_whitespace().map(str::to_owned));
         }
     }
 
-    let mut vars = Vec::new();
-    for var in variables {
-        let name = var.name();
-        let is_dim_coord = var.dimensions().iter().any(|d| d.name() == name);
-        let is_coord = is_dim_coord || coord_names.contains(&name);
-        vars.push(var_summary(&var, is_coord, path)?);
-    }
-
-    Ok(vars)
+    variables
+        .iter()
+        .map(|var| {
+            let name = var.name();
+            let is_dim_coord = var.dimensions().iter().any(|d| d.name() == name);
+            var_summary(var, is_dim_coord || coord_names.contains(&name))
+        })
+        .collect()
 }
 
 fn dim_info(dim: &Dimension) -> DimInfo {
@@ -122,10 +112,8 @@ fn dim_info(dim: &Dimension) -> DimInfo {
 /// `Error::TypeUnknown` for attribute types this crate/libnetcdf can't
 /// decode (enum, compound, vlen, opaque — e.g. an HDF5 `bool` attribute
 /// written by h5py). Such an error shouldn't take down the whole summary,
-/// so it's mapped to a placeholder text value rather than propagated; `path`
-/// is accepted for symmetry with other read helpers but is currently unused
-/// since this can no longer produce a [`MetaError`].
-fn attr_entry(attr: &Attribute, _path: &Path) -> (String, AttrValue) {
+/// so it's mapped to a placeholder text value rather than propagated.
+fn attr_entry(attr: &Attribute) -> (String, AttrValue) {
     let name = attr.name().to_owned();
     let value = match attr.value() {
         Ok(value) => attr_value_from(value),
@@ -193,7 +181,7 @@ fn ulonglongs_to_attr_value(v: Vec<u64>) -> AttrValue {
     }
 }
 
-fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary, MetaError> {
+fn var_summary(var: &Variable, is_coord: bool) -> VarSummary {
     let name = var.name();
     let dims: Vec<Dimension> = var.dimensions().to_vec();
     let dim_names = dims.iter().map(Dimension::name).collect();
@@ -204,10 +192,10 @@ fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary
     // "not chunked"; either way there's no chunking info to show.
     let chunks = var.chunking().ok().flatten();
     let chunks = chunks.map(|c| c.into_iter().map(|x| x as u64).collect());
-    let attrs = var.attributes().map(|a| attr_entry(&a, path)).collect();
+    let attrs = var.attributes().map(|a| attr_entry(&a)).collect();
     let preview = if is_coord { preview_values(var) } else { None };
 
-    Ok(VarSummary {
+    VarSummary {
         name,
         dtype,
         dims: dim_names,
@@ -215,7 +203,7 @@ fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary
         chunks,
         attrs,
         preview,
-    })
+    }
 }
 
 /// Numpy-style dtype string, matching how xarray displays it (e.g.
