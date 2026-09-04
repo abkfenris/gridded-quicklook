@@ -6,6 +6,7 @@
 //! previews are read; bulk variable data is never touched.
 
 use std::collections::HashSet;
+use std::ffi::{c_int, CString};
 use std::path::Path;
 
 // `::netcdf` (leading `::`) disambiguates the external `netcdf` crate from
@@ -18,58 +19,113 @@ use crate::model::{AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceForma
 
 /// Summarize the structure of a NetCDF or HDF5 file at `path`.
 ///
-/// Plain HDF5 files without netCDF-4 conventions still open successfully
-/// through `libnetcdf` and are reported as [`SourceFormat::NetCdf`]; there
-/// is no cheap way to distinguish "HDF5 that happens to satisfy netCDF-4
-/// conventions" from "HDF5 written by the netCDF-4 library" at this layer,
-/// so no separate `Hdf5` detection is attempted in this milestone.
+/// Plain HDF5 files (h5py output, say) open through `libnetcdf` just like
+/// netCDF-4 ones; they are told apart by [`detect_format`] and reported as
+/// [`SourceFormat::Hdf5`] so the format badge is honest about what wrote
+/// the file.
 pub fn summarize_netcdf(path: &Path) -> Result<DatasetSummary, MetaError> {
     let file = ::netcdf::open(path).map_err(|source| MetaError::Open {
         path: path.to_path_buf(),
         source,
     })?;
+    let format = detect_format(path);
 
     let root = match file.root() {
         // netCDF-4 (and netCDF-4 classic) files expose a proper group tree.
-        Some(group) => summarize_group(&group, true, path)?,
+        Some(group) => summarize_group(&group, true),
         // Classic/64-bit-offset/CDF5 files have no group API; fall back to
         // the flat file-level variable/attribute accessors for a single,
         // childless root group.
         None => {
             let dims: Vec<DimInfo> = file.dimensions().map(|d| dim_info(&d)).collect();
-            let vars = collect_var_summaries(file.variables(), file.variables(), path)?;
-            let attrs = file.attributes().map(|a| attr_entry(&a, path)).collect();
-            GroupSummary::from_parts(String::new(), Some(dims), attrs, vars, Vec::new())
+            let vars: Vec<Variable> = file.variables().collect();
+            let attrs = file.attributes().map(|a| attr_entry(&a)).collect();
+            GroupSummary::from_parts(
+                String::new(),
+                Some(dims),
+                attrs,
+                collect_var_summaries(&vars),
+                Vec::new(),
+            )
         }
     };
 
     Ok(DatasetSummary {
-        format: SourceFormat::NetCdf,
+        format,
         root,
         version_info: None,
     })
 }
 
-fn summarize_group(group: &Group, is_root: bool, path: &Path) -> Result<GroupSummary, MetaError> {
+/// Was the file at `path` written by the netCDF library, or is it HDF5 that
+/// libnetcdf merely knows how to open?
+///
+/// libnetcdf answers this itself through the virtual global attribute
+/// `_IsNetcdf4` (see `nc_provenance.h`): it is constructed on the fly for
+/// HDF5-backed files, `1` when the file carries netCDF-4's provenance
+/// markers (`_NCProperties`, dimension scales) and `0` otherwise, and does
+/// not exist at all for classic-format files. It is what `ncdump -s` prints.
+///
+/// The probe goes through `netcdf-sys` on a short-lived handle of its own
+/// rather than the already-open [`::netcdf::File`]: the safe crate keeps
+/// its `ncid` private, and its by-name attribute lookup goes via
+/// `nc_inq_attid`, which libnetcdf refuses for virtual attributes
+/// (`NC_EATTMETA`) and which the crate then `unwrap`s into a panic. Any
+/// failure along the way reads as "netCDF", the status quo before this
+/// probe existed.
+fn detect_format(path: &Path) -> SourceFormat {
+    let Some(c_path) = path.to_str().and_then(|s| CString::new(s).ok()) else {
+        return SourceFormat::NetCdf;
+    };
+
+    // libnetcdf is not thread-safe; the `netcdf` crate serializes every
+    // call through this same lock, so taking it here keeps the raw calls
+    // below from interleaving with the crate's.
+    let _guard = netcdf_sys::libnetcdf_lock.lock();
+    let mut ncid: c_int = 0;
+    // SAFETY: `c_path` is a valid NUL-terminated string and `ncid` a valid
+    // out-pointer; the handle is closed below on every path after a
+    // successful open.
+    if unsafe { netcdf_sys::nc_open(c_path.as_ptr(), netcdf_sys::NC_NOWRITE, &mut ncid) }
+        != netcdf_sys::NC_NOERR
+    {
+        return SourceFormat::NetCdf;
+    }
+    let mut is_netcdf4: c_int = 1;
+    // SAFETY: `ncid` was just returned by a successful `nc_open`, the name
+    // is a NUL-terminated literal and `is_netcdf4` a valid out-pointer.
+    let status = unsafe {
+        netcdf_sys::nc_get_att_int(
+            ncid,
+            netcdf_sys::NC_GLOBAL,
+            c"_IsNetcdf4".as_ptr(),
+            &mut is_netcdf4,
+        )
+    };
+    // SAFETY: closing the handle opened above, exactly once.
+    unsafe { netcdf_sys::nc_close(ncid) };
+
+    if status == netcdf_sys::NC_NOERR && is_netcdf4 == 0 {
+        SourceFormat::Hdf5
+    } else {
+        SourceFormat::NetCdf
+    }
+}
+
+fn summarize_group(group: &Group, is_root: bool) -> GroupSummary {
     let dims: Vec<DimInfo> = group.dimensions().map(|d| dim_info(&d)).collect();
-
-    let vars = collect_var_summaries(group.variables(), group.variables(), path)?;
-
-    let attrs = group.attributes().map(|a| attr_entry(&a, path)).collect();
-
-    let children = group
-        .groups()
-        .map(|g| summarize_group(&g, false, path))
-        .collect::<Result<_, _>>()?;
+    let vars: Vec<Variable> = group.variables().collect();
+    let attrs = group.attributes().map(|a| attr_entry(&a)).collect();
+    let children = group.groups().map(|g| summarize_group(&g, false)).collect();
 
     let name = if is_root { String::new() } else { group.name() };
-    Ok(GroupSummary::from_parts(
+    GroupSummary::from_parts(
         name,
         Some(dims),
         attrs,
-        vars,
+        collect_var_summaries(&vars),
         children,
-    ))
+    )
 }
 
 /// Builds each variable's [`VarSummary`] in a scope (group or, for
@@ -80,32 +136,22 @@ fn summarize_group(group: &Group, is_root: bool, path: &Path) -> Result<GroupSum
 /// [`GroupSummary`] is (re)computed identically by
 /// [`GroupSummary::from_parts`]; this earlier pass exists solely to gate
 /// that expensive read, not to classify for display purposes.
-///
-/// Takes two iterators over the same variable set (rather than one
-/// `Clone`-able iterator) because callers source them from `Group`/`File`
-/// methods that return a fresh `impl Iterator` each call; the first pass
-/// collects `coordinates`-attribute names, the second builds summaries.
-fn collect_var_summaries<'a>(
-    for_coord_names: impl Iterator<Item = Variable<'a>>,
-    variables: impl Iterator<Item = Variable<'a>>,
-    path: &Path,
-) -> Result<Vec<VarSummary>, MetaError> {
+fn collect_var_summaries(variables: &[Variable]) -> Vec<VarSummary> {
     let mut coord_names: HashSet<String> = HashSet::new();
-    for var in for_coord_names {
+    for var in variables {
         if let Some(Ok(AttributeValue::Str(names))) = var.attribute_value("coordinates") {
             coord_names.extend(names.split_whitespace().map(str::to_owned));
         }
     }
 
-    let mut vars = Vec::new();
-    for var in variables {
-        let name = var.name();
-        let is_dim_coord = var.dimensions().iter().any(|d| d.name() == name);
-        let is_coord = is_dim_coord || coord_names.contains(&name);
-        vars.push(var_summary(&var, is_coord, path)?);
-    }
-
-    Ok(vars)
+    variables
+        .iter()
+        .map(|var| {
+            let name = var.name();
+            let is_dim_coord = var.dimensions().iter().any(|d| d.name() == name);
+            var_summary(var, is_dim_coord || coord_names.contains(&name))
+        })
+        .collect()
 }
 
 fn dim_info(dim: &Dimension) -> DimInfo {
@@ -122,10 +168,8 @@ fn dim_info(dim: &Dimension) -> DimInfo {
 /// `Error::TypeUnknown` for attribute types this crate/libnetcdf can't
 /// decode (enum, compound, vlen, opaque — e.g. an HDF5 `bool` attribute
 /// written by h5py). Such an error shouldn't take down the whole summary,
-/// so it's mapped to a placeholder text value rather than propagated; `path`
-/// is accepted for symmetry with other read helpers but is currently unused
-/// since this can no longer produce a [`MetaError`].
-fn attr_entry(attr: &Attribute, _path: &Path) -> (String, AttrValue) {
+/// so it's mapped to a placeholder text value rather than propagated.
+fn attr_entry(attr: &Attribute) -> (String, AttrValue) {
     let name = attr.name().to_owned();
     let value = match attr.value() {
         Ok(value) => attr_value_from(value),
@@ -193,25 +237,21 @@ fn ulonglongs_to_attr_value(v: Vec<u64>) -> AttrValue {
     }
 }
 
-fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary, MetaError> {
+fn var_summary(var: &Variable, is_coord: bool) -> VarSummary {
     let name = var.name();
     let dims: Vec<Dimension> = var.dimensions().to_vec();
     let dim_names = dims.iter().map(Dimension::name).collect();
     let shape: Vec<u64> = dims.iter().map(|d| d.len() as u64).collect();
-    let dtype = dtype_string(&var.vartype(), &dims);
+    let dtype = dtype_string(&var.vartype());
     // Defensive: some backends/variable storage layouts (e.g. contiguous
     // classic-format variables) can error here rather than simply reporting
     // "not chunked"; either way there's no chunking info to show.
     let chunks = var.chunking().ok().flatten();
     let chunks = chunks.map(|c| c.into_iter().map(|x| x as u64).collect());
-    let attrs = var.attributes().map(|a| attr_entry(&a, path)).collect();
-    let preview = if is_coord {
-        preview_values(var, path)?
-    } else {
-        None
-    };
+    let attrs = var.attributes().map(|a| attr_entry(&a)).collect();
+    let preview = if is_coord { preview_values(var) } else { None };
 
-    Ok(VarSummary {
+    VarSummary {
         name,
         dtype,
         dims: dim_names,
@@ -219,12 +259,13 @@ fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary
         chunks,
         attrs,
         preview,
-    })
+    }
 }
 
-/// Numpy-style dtype string, matching how xarray displays it (e.g.
-/// `float32`, `int64`, `|S8` for fixed-length char arrays).
-fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
+/// Numpy-style dtype string for a variable as stored (e.g. `float32`,
+/// `int64`, `|S1`), matching `ncdump`/`h5py` and xarray with
+/// `decode_cf=False`.
+fn dtype_string(vartype: &NcVariableType) -> String {
     match vartype {
         NcVariableType::Float(FloatType::F32) => "float32".to_owned(),
         NcVariableType::Float(FloatType::F64) => "float64".to_owned(),
@@ -236,13 +277,15 @@ fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
         NcVariableType::Int(IntType::U32) => "uint32".to_owned(),
         NcVariableType::Int(IntType::I64) => "int64".to_owned(),
         NcVariableType::Int(IntType::U64) => "uint64".to_owned(),
-        // A netCDF `char` array conventionally uses its trailing dimension
-        // as the fixed string length (the `NC_CHAR` + "string length dim"
-        // convention netCDF-classic uses to emulate fixed-width strings).
-        NcVariableType::Char => {
-            let len = dims.last().map(|d| d.len()).unwrap_or(1);
-            format!("|S{len}")
-        }
+        // `NC_CHAR` is a one-byte character type; a netCDF `char` array
+        // conventionally uses its trailing dimension as a fixed string
+        // length, which xarray's CF decoding collapses into `|S{len}` while
+        // *dropping that dimension*. This reader reports dims/shape exactly
+        // as stored, so the dtype has to match that view: `|S1` over every
+        // dimension including the string-length one. Reporting `|S{len}`
+        // alongside the still-present trailing dim described neither the
+        // raw variable nor xarray's decoded one.
+        NcVariableType::Char => "|S1".to_owned(),
         NcVariableType::String => "object".to_owned(),
         other => format!("{other:?}"),
     }
@@ -252,29 +295,33 @@ fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
 /// `10.0 12.5 15.0 ... 42.0`. Never reads data for larger variables, and
 /// never CF-decodes datetimes (units containing "since") — that's left for
 /// a later milestone.
-fn preview_values(var: &Variable, path: &Path) -> Result<Option<String>, MetaError> {
+///
+/// This is the only place the reader touches variable *data*, and it is
+/// purely cosmetic, so a failed read must not take down the whole summary:
+/// the values are simply not previewed. The realistic failure is an HDF5
+/// filter plugin the statically linked libnetcdf doesn't ship (zstd, blosc,
+/// ...) on a compressed coordinate, which would otherwise turn a perfectly
+/// readable file's preview into an error card.
+fn preview_values(var: &Variable) -> Option<String> {
     let dims = var.dimensions();
     if dims.len() != 1 {
-        return Ok(None);
+        return None;
     }
     let len = dims[0].len();
     if len == 0 || len > 64 {
-        return Ok(None);
+        return None;
     }
 
     let is_float = match var.vartype() {
         NcVariableType::Float(_) => true,
         NcVariableType::Int(_) => false,
         // Text and user-defined types aren't previewed here.
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    let values: Vec<f64> = var.get_values(..).map_err(|source| MetaError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let values: Vec<f64> = var.get_values(..).ok()?;
 
-    Ok(Some(format_preview(&values, is_float)))
+    Some(format_preview(&values, is_float))
 }
 
 fn format_preview(values: &[f64], is_float: bool) -> String {
@@ -313,6 +360,49 @@ fn format_preview(values: &[f64], is_float: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Writes a tiny netCDF-4 file with a classic fixed-width string variable
+    /// (`NC_CHAR` over `(station, string8)`) and checks that the summary
+    /// describes it as stored: `|S1` over both dimensions, rather than the
+    /// old `|S8` that claimed CF-decoded width while still listing the
+    /// string-length dimension.
+    #[test]
+    fn char_variable_is_reported_as_stored() {
+        let dir = std::env::temp_dir().join(format!(
+            "gridlook-meta-netcdf-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock is after the epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("chars.nc");
+        {
+            let mut file = ::netcdf::create(&path).expect("create netCDF file");
+            file.add_dimension("station", 2).expect("add station dim");
+            file.add_dimension("string8", 8).expect("add string8 dim");
+            file.add_variable_with_type(
+                "station_name",
+                &["station", "string8"],
+                &NcVariableType::Char,
+            )
+            .expect("add char variable");
+        }
+
+        let summary = summarize_netcdf(&path).expect("summarize");
+        let var = summary
+            .root
+            .data_vars
+            .iter()
+            .find(|v| v.name == "station_name")
+            .expect("station_name is a data variable");
+        assert_eq!(var.dtype, "|S1");
+        assert_eq!(var.dims, vec!["station", "string8"]);
+        assert_eq!(var.shape, vec![2, 8]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn ulonglong_below_i64_max_stays_int() {

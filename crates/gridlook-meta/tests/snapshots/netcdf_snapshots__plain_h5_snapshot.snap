@@ -1,0 +1,124 @@
+---
+source: crates/gridlook-meta/tests/netcdf_snapshots.rs
+expression: summary
+---
+{
+  "format": "Hdf5",
+  "root": {
+    "name": "",
+    "dims": [
+      {
+        "name": "phony_dim_3",
+        "size": 4,
+        "is_unlimited": false
+      },
+      {
+        "name": "phony_dim_4",
+        "size": 3,
+        "is_unlimited": false
+      },
+      {
+        "name": "phony_dim_5",
+        "size": 2,
+        "is_unlimited": false
+      }
+    ],
+    "coords": [],
+    "data_vars": [
+      {
+        "name": "temperature",
+        "dtype": "float32",
+        "dims": [
+          "phony_dim_3",
+          "phony_dim_4",
+          "phony_dim_5"
+        ],
+        "shape": [
+          4,
+          3,
+          2
+        ],
+        "chunks": [
+          2,
+          3,
+          2
+        ],
+        "attrs": [
+          [
+            "units",
+            [
+              "degC"
+            ]
+          ]
+        ]
+      },
+      {
+        "name": "x",
+        "dtype": "float32",
+        "dims": [
+          "phony_dim_4"
+        ],
+        "shape": [
+          3
+        ],
+        "attrs": []
+      }
+    ],
+    "attrs": [
+      [
+        "title",
+        [
+          "gridlook plain HDF5 fixture"
+        ]
+      ],
+      [
+        "written_by",
+        [
+          "h5py"
+        ]
+      ]
+    ],
+    "children": [
+      {
+        "name": "diagnostics",
+        "dims": [
+          {
+            "name": "phony_dim_0",
+            "size": 4,
+            "is_unlimited": false
+          },
+          {
+            "name": "phony_dim_1",
+            "size": 3,
+            "is_unlimited": false
+          },
+          {
+            "name": "phony_dim_2",
+            "size": 2,
+            "is_unlimited": false
+          }
+        ],
+        "coords": [],
+        "data_vars": [
+          {
+            "name": "salinity",
+            "dtype": "float32",
+            "dims": [
+              "phony_dim_0",
+              "phony_dim_1",
+              "phony_dim_2"
+            ],
+            "shape": [
+              4,
+              3,
+              2
+            ],
+            "attrs": []
+          }
+        ],
+        "attrs": [],
+        "children": []
+      }
+    ]
+  }
+}

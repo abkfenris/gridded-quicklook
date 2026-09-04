@@ -13,12 +13,6 @@ pub enum MetaError {
         #[source]
         source: ::netcdf::Error,
     },
-    #[error("failed to read metadata from {path}: {source}")]
-    Read {
-        path: PathBuf,
-        #[source]
-        source: ::netcdf::Error,
-    },
     /// I/O failure while reading a Zarr store's metadata files directly off
     /// disk (e.g. `.zgroup`, `zarr.json`).
     #[error("failed to read {path}: {source}")]
