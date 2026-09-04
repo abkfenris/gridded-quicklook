@@ -18,7 +18,7 @@ commit history of their `main` branch.
 | Kind             | Format               | Recognized by                                   | Notes                                          |
 | ---------------- | -------------------- | ----------------------------------------------- | ---------------------------------------------- |
 | File             | NetCDF-3 / NetCDF-4  | `CDF` / HDF5 signature, or `.nc`, `.nc4`, `.cdf` | Groups (DataTree) supported                    |
-| File             | HDF5                 | HDF5 signature, or `.h5`, `.hdf5`, `.he5`        | Read through the same netCDF-4 reader          |
+| File             | HDF5                 | HDF5 signature, or `.h5`, `.hdf5`, `.he5`        | Same netCDF-4 reader; badge says HDF5 when the file lacks netCDF-4's markers |
 | Directory store  | Zarr v2              | `.zgroup` / `.zarray` / `.zmetadata` at the root | Consolidated metadata used when present        |
 | Directory store  | Zarr v3              | `zarr.json` at the root                          | Directory tree walked node by node             |
 | Directory store  | Icechunk (spec v1/v2) | `snapshots/` plus `refs/` or `repo` at the root | Tip of `main`, plus its snapshot ancestry      |
