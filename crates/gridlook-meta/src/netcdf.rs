@@ -198,18 +198,14 @@ fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary
     let dims: Vec<Dimension> = var.dimensions().to_vec();
     let dim_names = dims.iter().map(Dimension::name).collect();
     let shape: Vec<u64> = dims.iter().map(|d| d.len() as u64).collect();
-    let dtype = dtype_string(&var.vartype(), &dims);
+    let dtype = dtype_string(&var.vartype());
     // Defensive: some backends/variable storage layouts (e.g. contiguous
     // classic-format variables) can error here rather than simply reporting
     // "not chunked"; either way there's no chunking info to show.
     let chunks = var.chunking().ok().flatten();
     let chunks = chunks.map(|c| c.into_iter().map(|x| x as u64).collect());
     let attrs = var.attributes().map(|a| attr_entry(&a, path)).collect();
-    let preview = if is_coord {
-        preview_values(var, path)?
-    } else {
-        None
-    };
+    let preview = if is_coord { preview_values(var) } else { None };
 
     Ok(VarSummary {
         name,
@@ -222,9 +218,10 @@ fn var_summary(var: &Variable, is_coord: bool, path: &Path) -> Result<VarSummary
     })
 }
 
-/// Numpy-style dtype string, matching how xarray displays it (e.g.
-/// `float32`, `int64`, `|S8` for fixed-length char arrays).
-fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
+/// Numpy-style dtype string for a variable as stored (e.g. `float32`,
+/// `int64`, `|S1`), matching `ncdump`/`h5py` and xarray with
+/// `decode_cf=False`.
+fn dtype_string(vartype: &NcVariableType) -> String {
     match vartype {
         NcVariableType::Float(FloatType::F32) => "float32".to_owned(),
         NcVariableType::Float(FloatType::F64) => "float64".to_owned(),
@@ -236,13 +233,15 @@ fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
         NcVariableType::Int(IntType::U32) => "uint32".to_owned(),
         NcVariableType::Int(IntType::I64) => "int64".to_owned(),
         NcVariableType::Int(IntType::U64) => "uint64".to_owned(),
-        // A netCDF `char` array conventionally uses its trailing dimension
-        // as the fixed string length (the `NC_CHAR` + "string length dim"
-        // convention netCDF-classic uses to emulate fixed-width strings).
-        NcVariableType::Char => {
-            let len = dims.last().map(|d| d.len()).unwrap_or(1);
-            format!("|S{len}")
-        }
+        // `NC_CHAR` is a one-byte character type; a netCDF `char` array
+        // conventionally uses its trailing dimension as a fixed string
+        // length, which xarray's CF decoding collapses into `|S{len}` while
+        // *dropping that dimension*. This reader reports dims/shape exactly
+        // as stored, so the dtype has to match that view: `|S1` over every
+        // dimension including the string-length one. Reporting `|S{len}`
+        // alongside the still-present trailing dim described neither the
+        // raw variable nor xarray's decoded one.
+        NcVariableType::Char => "|S1".to_owned(),
         NcVariableType::String => "object".to_owned(),
         other => format!("{other:?}"),
     }
@@ -252,29 +251,33 @@ fn dtype_string(vartype: &NcVariableType, dims: &[Dimension]) -> String {
 /// `10.0 12.5 15.0 ... 42.0`. Never reads data for larger variables, and
 /// never CF-decodes datetimes (units containing "since") — that's left for
 /// a later milestone.
-fn preview_values(var: &Variable, path: &Path) -> Result<Option<String>, MetaError> {
+///
+/// This is the only place the reader touches variable *data*, and it is
+/// purely cosmetic, so a failed read must not take down the whole summary:
+/// the values are simply not previewed. The realistic failure is an HDF5
+/// filter plugin the statically linked libnetcdf doesn't ship (zstd, blosc,
+/// ...) on a compressed coordinate, which would otherwise turn a perfectly
+/// readable file's preview into an error card.
+fn preview_values(var: &Variable) -> Option<String> {
     let dims = var.dimensions();
     if dims.len() != 1 {
-        return Ok(None);
+        return None;
     }
     let len = dims[0].len();
     if len == 0 || len > 64 {
-        return Ok(None);
+        return None;
     }
 
     let is_float = match var.vartype() {
         NcVariableType::Float(_) => true,
         NcVariableType::Int(_) => false,
         // Text and user-defined types aren't previewed here.
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    let values: Vec<f64> = var.get_values(..).map_err(|source| MetaError::Read {
-        path: path.to_path_buf(),
-        source,
-    })?;
+    let values: Vec<f64> = var.get_values(..).ok()?;
 
-    Ok(Some(format_preview(&values, is_float)))
+    Some(format_preview(&values, is_float))
 }
 
 fn format_preview(values: &[f64], is_float: bool) -> String {
@@ -313,6 +316,49 @@ fn format_preview(values: &[f64], is_float: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Writes a tiny netCDF-4 file with a classic fixed-width string variable
+    /// (`NC_CHAR` over `(station, string8)`) and checks that the summary
+    /// describes it as stored: `|S1` over both dimensions, rather than the
+    /// old `|S8` that claimed CF-decoded width while still listing the
+    /// string-length dimension.
+    #[test]
+    fn char_variable_is_reported_as_stored() {
+        let dir = std::env::temp_dir().join(format!(
+            "gridlook-meta-netcdf-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock is after the epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("chars.nc");
+        {
+            let mut file = ::netcdf::create(&path).expect("create netCDF file");
+            file.add_dimension("station", 2).expect("add station dim");
+            file.add_dimension("string8", 8).expect("add string8 dim");
+            file.add_variable_with_type(
+                "station_name",
+                &["station", "string8"],
+                &NcVariableType::Char,
+            )
+            .expect("add char variable");
+        }
+
+        let summary = summarize_netcdf(&path).expect("summarize");
+        let var = summary
+            .root
+            .data_vars
+            .iter()
+            .find(|v| v.name == "station_name")
+            .expect("station_name is a data variable");
+        assert_eq!(var.dtype, "|S1");
+        assert_eq!(var.dims, vec!["station", "string8"]);
+        assert_eq!(var.shape, vec![2, 8]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn ulonglong_below_i64_max_stays_int() {
