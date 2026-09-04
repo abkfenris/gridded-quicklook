@@ -11,9 +11,12 @@ name = "gridlook_meta"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+base64 = "0.23"
 zarrs_metadata = "0.7"
 netcdf = { version = "0.12", features = ["static"] }
+# Only for the `_IsNetcdf4` probe in netcdf.rs; everything else goes through
+# the safe `netcdf` crate. Same version line `netcdf` itself depends on.
+netcdf-sys = "0.9"
 thiserror = "2"
 icechunk = { version = "2.1.2", default-features = false, features = [
     "object-store-fs",
@@ -28,3 +31,11 @@ icechunk = ["dep:icechunk", "dep:tokio"]
 
 [dev-dependencies]
 insta = { version = "1", features = ["json", "redactions"] }
+# Self dev-dependency: turns the `icechunk` feature on for this crate's own
+# tests (Cargo unifies a package's features with its dev-dependencies' when
+# building its test targets) so `cargo test -p gridlook-meta` exercises the
+# Icechunk reader on its own. Without this the `#[cfg(feature = "icechunk")]`
+# tests only ran when the whole workspace was built, because gridlook-ffi's
+# dependency happened to enable the feature through feature unification.
+# Library consumers are unaffected: dev-dependencies never leak downstream.
+gridlook-meta = { path = ".", features = ["icechunk"] }

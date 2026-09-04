@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gridlook_meta::summarize_netcdf;
+use gridlook_meta::{summarize_netcdf, SourceFormat};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -18,6 +18,26 @@ fn simple_nc_snapshot() {
 fn groups_nc_snapshot() {
     let summary = summarize_netcdf(&fixture("groups.nc")).expect("summarize groups.nc");
     insta::assert_json_snapshot!(summary);
+}
+
+/// `plain.h5` is written by h5py, not the netCDF-4 library: libnetcdf opens
+/// it (datasets over `phony_dim_N` dimensions) but its `_IsNetcdf4` probe
+/// says no, so the summary carries the HDF5 badge.
+#[test]
+fn plain_h5_snapshot() {
+    let summary = summarize_netcdf(&fixture("plain.h5")).expect("summarize plain.h5");
+    assert_eq!(summary.format, SourceFormat::Hdf5);
+    insta::assert_json_snapshot!(summary);
+}
+
+/// Files the netCDF library wrote, in both the HDF5-backed and classic
+/// formats, keep the netCDF badge.
+#[test]
+fn netcdf_written_files_are_reported_as_netcdf() {
+    for name in ["simple.nc", "groups.nc", "simple_classic.nc"] {
+        let summary = summarize_netcdf(&fixture(name)).expect(name);
+        assert_eq!(summary.format, SourceFormat::NetCdf, "{name}");
+    }
 }
 
 /// Regression test for a bug where classic-format files (no group API in
