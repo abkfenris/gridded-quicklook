@@ -779,9 +779,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk"
-version = "2.1.2"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b789b0eaa5dbaf3a2ea9cbb11cbd391eaccb6cf916eec9326c620a4585c247b"
+checksum = "04a905203acc7e712a27add97491414a1cf39ab59bfbde19393bdaa25357b9cd"
 dependencies = [
  "async-compression",
  "async-recursion",
@@ -818,9 +818,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-arrow-object-store"
-version = "2.1.2"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a83bb554b0752a42480370fd6d5eefda9d65198b21279ead5ec457e0243561d"
+checksum = "baf02f586938c8c4ebdb0ef3ce601d14819f6c829cde7e070844266c1bd020de"
 dependencies = [
  "async-trait",
  "bytes",
@@ -842,9 +842,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-format"
-version = "2.1.2"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "726b173f50968588eda09d61a1c6736cc77bd807f6bc0981557ff61363ffc933"
+checksum = "70a29182f7a6fb0558c51d12794a82f00297a9cd300fd2beda701f64f2a9fc6f"
 dependencies = [
  "base32",
  "bytes",
@@ -868,9 +868,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-storage"
-version = "2.1.2"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6c868eb411e5749d72f6685780c53e55861c1993479be6d89151df13d2b0bda"
+checksum = "6f826bb55d5a403e97a002c8e123cb068e8c38a52a142517c3f0c29f97d244b2"
 dependencies = [
  "async-trait",
  "bytes",
@@ -889,9 +889,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-types"
-version = "2.1.2"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a56cc3583165127c8e098b4650c38e0671d58a5d9a8dc24ca4d73111935f50d"
+checksum = "972c8748d7144b007c08e67a3bc276e20ba0960608d70e0702aadbbfe18aa7c6"
 dependencies = [
  "serde",
  "serde_with",

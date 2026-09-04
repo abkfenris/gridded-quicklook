@@ -68,11 +68,11 @@ fn main() {
         return;
     }
 
-    if let Some(parent) = header_path.parent() {
-        if let Err(err) = fs::create_dir_all(parent) {
-            println!("cargo:warning=gridlook-ffi: cannot create apple/include: {err}");
-            return;
-        }
+    if let Some(parent) = header_path.parent()
+        && let Err(err) = fs::create_dir_all(parent)
+    {
+        println!("cargo:warning=gridlook-ffi: cannot create apple/include: {err}");
+        return;
     }
     if let Err(err) = fs::write(&header_path, new_contents) {
         println!("cargo:warning=gridlook-ffi: cannot write apple/include/gridlook_ffi.h: {err}");
