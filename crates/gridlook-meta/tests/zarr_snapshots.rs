@@ -26,6 +26,19 @@ fn tree_zarr_snapshot() {
     insta::assert_json_snapshot!(summary);
 }
 
+/// `tree_consolidated.zarr` is `tree.zarr` written with zarr-python's v3
+/// consolidated metadata. Reading the hierarchy from the root document must
+/// give exactly the same summary as walking the un-consolidated store.
+#[test]
+fn consolidated_v3_tree_matches_walked_v3_tree() {
+    let walked = summarize_zarr(&fixture("tree.zarr")).expect("summarize tree.zarr");
+    let consolidated = summarize_zarr(&fixture("tree_consolidated.zarr"))
+        .expect("summarize tree_consolidated.zarr");
+    // Compared as Debug text rather than with `==`: the `_FillValue` attrs
+    // are NaN, and NaN != NaN would fail a direct comparison.
+    assert_eq!(format!("{consolidated:#?}"), format!("{walked:#?}"));
+}
+
 /// Projection of a group used to compare v2 and v3 readings of "the same"
 /// dataset without depending on the `format` field, which necessarily
 /// differs between them.
