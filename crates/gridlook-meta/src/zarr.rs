@@ -1093,6 +1093,43 @@ mod tests {
         assert_eq!(names(&root.data_vars), vec!["only"]);
     }
 
+    /// The JSON snapshots can't see this: `AttrValue::Float(NaN)` serializes
+    /// as `null`, indistinguishable from a missing value, so the decode is
+    /// asserted here directly.
+    #[test]
+    fn base64_fill_value_decodes_to_the_float_it_encodes() {
+        // zarr-python's V3 encoder writes float64 NaN as the base64 of its
+        // little-endian bytes.
+        let nan64 = serde_json::json!("AAAAAAAA+H8=");
+        match decode_base64_float_attr("_FillValue", &nan64) {
+            Some(AttrValue::Float(f)) => assert!(f.is_nan(), "expected NaN, got {f}"),
+            other => panic!("expected Float(NaN), got {other:?}"),
+        }
+
+        // float32 +inf: 0x7f800000 little-endian.
+        let inf32 = serde_json::json!("AACAfw==");
+        match decode_base64_float_attr("_FillValue", &inf32) {
+            Some(AttrValue::Float(f)) => assert_eq!(f, f64::INFINITY),
+            other => panic!("expected Float(inf), got {other:?}"),
+        }
+
+        // Only _FillValue is decoded; any other short string stays text.
+        assert_eq!(decode_base64_float_attr("units", &nan64), None);
+        // Wrong byte lengths and non-base64 are left alone too.
+        assert_eq!(
+            decode_base64_float_attr("_FillValue", &serde_json::json!("AAA=")),
+            None
+        );
+        assert_eq!(
+            decode_base64_float_attr("_FillValue", &serde_json::json!("not base64!")),
+            None
+        );
+        assert_eq!(
+            decode_base64_float_attr("_FillValue", &serde_json::json!(1.5)),
+            None
+        );
+    }
+
     #[test]
     fn v2_dtype_string_expands_numeric_and_string_typestrings() {
         assert_eq!(v2_dtype_string("<f4"), "float32");
