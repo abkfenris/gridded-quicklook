@@ -11,11 +11,11 @@ name = "gridlook_meta"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.22"
+base64 = "0.23"
 zarrs_metadata = "0.7"
 netcdf = { version = "0.12", features = ["static"] }
 thiserror = "2"
-icechunk = { version = "2.1.2", default-features = false, features = [
+icechunk = { version = "2.2.0", default-features = false, features = [
     "object-store-fs",
 ], optional = true }
 tokio = { version = "1", default-features = false, features = [
