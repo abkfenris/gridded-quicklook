@@ -229,7 +229,7 @@ fn json_object_to_attrs(map: &serde_json::Map<String, Value>) -> Vec<(String, At
 /// to `_FillValue` only: any short string can *look* like base64, and only
 /// this attribute is known to carry the encoding.
 fn decode_base64_float_attr(key: &str, value: &Value) -> Option<AttrValue> {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     if key != "_FillValue" {
         return None;
@@ -788,10 +788,9 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
         } else if let Some(node_path) = key.strip_suffix("/.zattrs").or(match key.as_str() {
             ".zattrs" => Some(""),
             _ => None,
-        }) {
-            if let Some(map) = value.as_object() {
-                attrs.insert(node_path.to_owned(), map.clone());
-            }
+        }) && let Some(map) = value.as_object()
+        {
+            attrs.insert(node_path.to_owned(), map.clone());
         }
         // `.zmetadata` itself (nested, shouldn't occur) and any other key is
         // ignored: only the three per-node file kinds above are meaningful.
