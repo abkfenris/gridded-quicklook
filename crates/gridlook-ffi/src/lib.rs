@@ -288,8 +288,8 @@ mod tests {
     /// root markers win over the icechunk directory-layout sniff.
     #[test]
     fn zarr_store_with_icechunk_like_children_routes_to_zarr() {
-        let dir = std::env::temp_dir().join("gridlook_ffi_dispatch_test.zarr");
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let dir = tmp.path().join("gridlook_ffi_dispatch_test.zarr");
         for child in ["snapshots", "transactions"] {
             std::fs::create_dir_all(dir.join(child)).expect("create child dirs");
         }
@@ -300,7 +300,6 @@ mod tests {
         .expect("write root zarr.json");
 
         let html = render(dir.to_str().expect("temp path is UTF-8"));
-        let _ = std::fs::remove_dir_all(&dir);
         assert!(
             !html.contains("gq-error"),
             "a Zarr store with icechunk-like child names must not error, got: {html}"

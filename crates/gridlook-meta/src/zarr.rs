@@ -638,32 +638,23 @@ fn build_v2_consolidated_group(
 mod tests {
     use std::num::NonZeroU64;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
+    use tempfile::TempDir;
     use zarrs_metadata::v3::FillValueMetadataV3;
 
     use super::*;
 
     /// Creates a fresh, empty temporary directory named `name` (e.g.
-    /// `"root.zarr"`) for a test store to write into, nested under a
-    /// process- and call-unique parent so parallel test runs never collide
-    /// and so `name` alone (not some disambiguating suffix) is what
-    /// `Path::file_stem` sees.
-    fn temp_store_dir(name: &str) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock is after the epoch")
-            .as_nanos();
-        let parent = std::env::temp_dir().join(format!(
-            "gridlook-meta-zarr-test-{}-{nanos}-{n}",
-            std::process::id()
-        ));
-        let dir = parent.join(name);
+    /// `"root.zarr"`) for a test store to write into, nested inside a
+    /// unique [`TempDir`] so `name` alone (not some disambiguating suffix)
+    /// is what `Path::file_stem` sees. Keep the returned guard alive for
+    /// the duration of the test: dropping it deletes the tree, panicking
+    /// assertions included.
+    fn temp_store_dir(name: &str) -> (TempDir, PathBuf) {
+        let parent = tempfile::tempdir().expect("create temp dir");
+        let dir = parent.path().join(name);
         fs::create_dir_all(&dir).expect("create temp store dir");
-        dir
+        (parent, dir)
     }
 
     /// Minimal, valid Zarr v2 array metadata for a single 1-D array of
@@ -713,7 +704,7 @@ mod tests {
 
     #[test]
     fn root_is_array_v2_uses_directory_stem_as_var_name() {
-        let dir = temp_store_dir("root.zarr");
+        let (_tmp, dir) = temp_store_dir("root.zarr");
         let array = tiny_v2_array();
         fs::write(
             dir.join(".zarray"),
@@ -729,13 +720,11 @@ mod tests {
             .map(|v| v.name.as_str())
             .collect();
         assert_eq!(names, vec!["root"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[test]
     fn root_is_array_v3_uses_directory_stem_as_var_name() {
-        let dir = temp_store_dir("mydata.zarr");
+        let (_tmp, dir) = temp_store_dir("mydata.zarr");
         let chunk_grid = MetadataV3::new_with_serializable_configuration(
             "regular".to_owned(),
             &serde_json::json!({ "chunk_shape": [2] }),
@@ -762,8 +751,6 @@ mod tests {
             .map(|v| v.name.as_str())
             .collect();
         assert_eq!(names, vec!["mydata"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// Regression test for a consolidated v2 store where an intermediate
@@ -773,7 +760,7 @@ mod tests {
     /// it, rather than being silently dropped.
     #[test]
     fn consolidated_v2_discovers_implicit_child_group() {
-        let dir = temp_store_dir("implicit.zarr");
+        let (_tmp, dir) = temp_store_dir("implicit.zarr");
         let array = tiny_v2_array();
 
         let mut metadata = serde_json::Map::new();
@@ -804,7 +791,5 @@ mod tests {
             "implicit group \"g\" contains its array \"arr\", got {:?}",
             g.data_vars
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 }
