@@ -917,7 +917,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn v3_symlink_loop_is_reported_instead_of_walked() {
-        let dir = temp_store_dir("loop_v3.zarr");
+        let (_tmp, dir) = temp_store_dir("loop_v3.zarr");
         fs::write(
             dir.join("zarr.json"),
             r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#,
@@ -934,14 +934,12 @@ mod tests {
             err.to_string().contains("symlink loop"),
             "error should hint at the cause, got: {err}"
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[cfg(unix)]
     #[test]
     fn v2_symlink_loop_is_reported_instead_of_walked() {
-        let dir = temp_store_dir("loop_v2.zarr");
+        let (_tmp, dir) = temp_store_dir("loop_v2.zarr");
         fs::write(dir.join(".zgroup"), r#"{"zarr_format":2}"#).expect("write root .zgroup");
         std::os::unix::fs::symlink(".", dir.join("loop")).expect("create symlink loop");
 
@@ -950,8 +948,6 @@ mod tests {
             matches!(err, MetaError::Invalid { .. }),
             "expected MetaError::Invalid, got {err:?}"
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// A symlink to a *sibling* group is not a loop: the target is walked
@@ -960,7 +956,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn v3_symlink_to_sibling_group_is_not_a_loop() {
-        let dir = temp_store_dir("sibling_v3.zarr");
+        let (_tmp, dir) = temp_store_dir("sibling_v3.zarr");
         let group = r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#;
         fs::write(dir.join("zarr.json"), group).expect("write root zarr.json");
         fs::create_dir(dir.join("a")).expect("create a");
@@ -975,14 +971,12 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(names, vec!["a", "b"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[test]
     fn walk_guard_caps_nesting_depth() {
         let mut guard = WalkGuard::default();
-        let dir = temp_store_dir("deep.zarr");
+        let (_tmp, dir) = temp_store_dir("deep.zarr");
         // Re-entering the *same* directory is a loop, so give each level a
         // distinct (nonexistent, hence non-canonicalizable) path.
         for i in 0..MAX_GROUP_DEPTH {
@@ -997,8 +991,6 @@ mod tests {
             err.to_string().contains("deeper than"),
             "unexpected error: {err}"
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// Regression test for a consolidated v2 store where an intermediate
