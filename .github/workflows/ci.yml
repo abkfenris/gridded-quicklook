@@ -131,13 +131,14 @@ jobs:
           HEAD_MB=$(awk "BEGIN { printf \"%.1f\", $HEAD_BYTES / 1048576 }")
           DELTA_MB=$(awk "BEGIN { printf \"%+.1f\", $DELTA / 1048576 }")
           PCT=$(awk "BEGIN { printf \"%+.1f\", ($DELTA / $BASE_BYTES) * 100 }")
+          ABS_PCT=$(awk "BEGIN { d = ($DELTA / $BASE_BYTES) * 100; if (d < 0) d = -d; printf \"%.1f\", d }")
 
           if [ "$DELTA" -lt 0 ]; then
-            VERDICT="Size decreased ${PCT}%."
+            VERDICT="Size decreased by ${ABS_PCT}%."
           elif [ "$DELTA" = "0" ]; then
             VERDICT="No size change."
           else
-            VERDICT="Size increased ${PCT}%."
+            VERDICT="Size increased by ${ABS_PCT}%."
           fi
 
           {
@@ -146,9 +147,9 @@ jobs:
             echo ""
             echo "| | Size | Bytes |"
             echo "|---|---|---|"
-            echo "| Base (\`${BASE_REF}\`) | ${BASE_MB} MB | ${BASE_BYTES} |"
-            echo "| PR | ${HEAD_MB} MB | ${HEAD_BYTES} |"
-            echo "| Delta | ${DELTA_MB} MB (${PCT}%) | ${DELTA} |"
+            echo "| Base (\`${BASE_REF}\`) | ${BASE_MB} MiB | ${BASE_BYTES} |"
+            echo "| PR | ${HEAD_MB} MiB | ${HEAD_BYTES} |"
+            echo "| Delta | ${DELTA_MB} MiB (${PCT}%) | ${DELTA} |"
             echo ""
             echo "${VERDICT}"
             echo ""
