@@ -128,6 +128,15 @@ def write_zarr_fixtures(ds: xr.Dataset, dt: xr.DataTree) -> None:
     dt.to_zarr(
         DATA_DIR / "tree.zarr", mode="w", zarr_format=3, consolidated=False
     )
+    # Same tree with zarr-python's (not-yet-standardized) v3 consolidated
+    # metadata: the root zarr.json carries every descendant's document under
+    # "consolidated_metadata", which the reader uses instead of walking.
+    dt.to_zarr(
+        DATA_DIR / "tree_consolidated.zarr",
+        mode="w",
+        zarr_format=3,
+        consolidated=True,
+    )
 
 
 def write_icechunk_fixture(ds: xr.Dataset) -> None:

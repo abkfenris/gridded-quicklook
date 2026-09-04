@@ -22,8 +22,11 @@ use crate::model::{AttrValue, DatasetSummary, GroupSummary, SourceFormat, VarSum
 /// Summarize the structure of a Zarr directory store at `path`.
 ///
 /// Detects the store's flavor from what's present at `path`:
-/// - `zarr.json` at the root → Zarr v3 (walks the directory tree; every
-///   subdirectory with its own `zarr.json` is a group or array node).
+/// - `zarr.json` at the root → Zarr v3. If the root group carries
+///   zarr-python's `consolidated_metadata` (every descendant's document
+///   inlined under the root), the whole hierarchy is read from that one
+///   file; otherwise the directory tree is walked and every subdirectory
+///   with its own `zarr.json` is a group or array node.
 /// - `.zmetadata` at the root → Zarr v2 with consolidated metadata; all node
 ///   metadata is read from that single file and the tree is **not** walked
 ///   further.
@@ -39,7 +42,16 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     if v3_root.is_file() {
         let node: NodeMetadataV3 = read_json_as(&v3_root)?;
         let root = match node {
-            NodeMetadataV3::Group(group) => walk_v3_group(path, String::new(), group)?,
+            NodeMetadataV3::Group(group) => match consolidated_v3_nodes(&group, &v3_root)? {
+                Some(mut nodes) => {
+                    // The root's own document is the one we already parsed;
+                    // zarr-python doesn't repeat it inside the consolidated
+                    // map.
+                    nodes.insert(String::new(), NodeMetadataV3::Group(group));
+                    build_v3_tree(&nodes, path)?
+                }
+                None => walk_v3_group(path, String::new(), group)?,
+            },
             NodeMetadataV3::Array(array) => {
                 let var = v3_var_summary(root_array_name(path), &array, &v3_root)?;
                 build_group_summary(String::new(), &array.attributes, vec![var], Vec::new())
@@ -246,6 +258,19 @@ fn read_v2_attrs(dir: &Path) -> Result<serde_json::Map<String, Value>, MetaError
         .unwrap_or_default())
 }
 
+/// Is this directory entry a directory (following a symlink if it is one)?
+/// `DirEntry::file_type` is free on most filesystems (it comes back with the
+/// directory listing), so only symlinks pay for the extra `stat` that
+/// `Path::is_dir` always costs.
+fn entry_is_dir(entry: &fs::DirEntry, path: &Path) -> bool {
+    match entry.file_type() {
+        Ok(kind) if kind.is_dir() => true,
+        Ok(kind) if kind.is_symlink() => path.is_dir(),
+        Ok(_) => false,
+        Err(_) => path.is_dir(),
+    }
+}
+
 fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>, MetaError> {
     let mut entries = fs::read_dir(dir)
         .map_err(|source| MetaError::Io {
@@ -267,11 +292,6 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<fs::DirEntry>, MetaError> {
 
 /// Extracts a node's `attributes` map regardless of whether it's an array
 /// or a group node — both carry one, just on different underlying structs.
-///
-/// Since [`walk_v3_group`] now takes an already-narrowed [`GroupMetadataV3`]
-/// (see its doc comment), this is only reached from `icechunk.rs`, which
-/// still deals in the un-narrowed [`NodeMetadataV3`].
-#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
 pub(crate) fn v3_node_attrs(node: &NodeMetadataV3) -> &serde_json::Map<String, Value> {
     match node {
         NodeMetadataV3::Array(array) => &array.attributes,
@@ -281,23 +301,22 @@ pub(crate) fn v3_node_attrs(node: &NodeMetadataV3) -> &serde_json::Map<String, V
 
 /// An attribute-less group node, used as a stand-in for a store whose root
 /// group carries no metadata of its own.
-#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
 pub(crate) fn empty_v3_group_node() -> NodeMetadataV3 {
     NodeMetadataV3::Group(GroupMetadataV3::default())
 }
 
 /// Builds a group tree from a flat map of *relative* node paths (`""` for
 /// the root, `"a/b"` for nested nodes; no leading or trailing slash) to
-/// parsed v3 node metadata. That is the shape an Icechunk snapshot's node
-/// list comes in, so the hierarchy is recovered here rather than per
-/// reader. A missing root entry is treated as an attribute-less group.
+/// parsed v3 node metadata. That is the shape both an Icechunk snapshot's
+/// node list and zarr-python's v3 consolidated metadata come in, so the
+/// hierarchy is recovered here rather than per reader. A missing root entry
+/// is treated as an attribute-less group.
 ///
 /// `store_root` only serves to name the offending node in errors.
 ///
 /// Each group finds its children with a range scan ([`keys_under`]) over
 /// the sorted map, so the whole build costs O(N · depth) key comparisons
 /// instead of the O(N · groups) of filtering the entire map once per group.
-#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
 pub(crate) fn build_v3_tree(
     nodes: &BTreeMap<String, NodeMetadataV3>,
     store_root: &Path,
@@ -307,7 +326,6 @@ pub(crate) fn build_v3_tree(
     build_v3_tree_group(nodes, store_root, "", String::new(), root)
 }
 
-#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
 fn build_v3_tree_group(
     nodes: &BTreeMap<String, NodeMetadataV3>,
     store_root: &Path,
@@ -353,6 +371,55 @@ fn build_v3_tree_group(
     ))
 }
 
+/// zarr-python (3.x) can inline every descendant's `zarr.json` document
+/// into the root group's under a `consolidated_metadata` field:
+///
+/// ```json
+/// "consolidated_metadata": {
+///   "kind": "inline", "must_understand": false,
+///   "metadata": { "x": {…array…}, "g": {…group…}, "g/y": {…array…} }
+/// }
+/// ```
+///
+/// (Not part of the Zarr v3 spec yet, hence `must_understand: false`.) xarray
+/// writes it by default, and reading it turns a directory walk with several
+/// `stat`s and a JSON read per node into a single file read — the difference
+/// between instant and sluggish on network or cloud-synced folders.
+///
+/// Returns `Ok(None)` when the field is absent or has a shape this reader
+/// doesn't recognize (a `kind` other than `inline`, no `metadata` object),
+/// in which case the caller falls back to walking the store; a document
+/// inside the map that fails to parse is an error, since a corrupt
+/// consolidated map isn't something a walk should silently paper over.
+/// Keys are node paths relative to the root; zarr-python doesn't repeat the
+/// root's own document, so the returned map has no `""` entry.
+fn consolidated_v3_nodes(
+    group: &GroupMetadataV3,
+    root_json: &Path,
+) -> Result<Option<BTreeMap<String, NodeMetadataV3>>, MetaError> {
+    let Some(field) = group.additional_fields.get("consolidated_metadata") else {
+        return Ok(None);
+    };
+    let consolidated = field.as_value();
+    if consolidated.get("kind").and_then(Value::as_str) != Some("inline") {
+        return Ok(None);
+    }
+    let Some(metadata) = consolidated.get("metadata").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+
+    let mut nodes = BTreeMap::new();
+    for (node_path, document) in metadata {
+        let node: NodeMetadataV3 =
+            serde_json::from_value(document.clone()).map_err(|source| MetaError::Json {
+                path: root_json.to_path_buf(),
+                source,
+            })?;
+        nodes.insert(node_path.trim_matches('/').to_owned(), node);
+    }
+    Ok(Some(nodes))
+}
+
 /// Walks a v3 group's children, given `own` — the group's `zarr.json`
 /// already parsed by the caller (either [`summarize_zarr`] for the root, or
 /// this function itself for a recursive call), so each node's `zarr.json` is
@@ -367,7 +434,7 @@ fn walk_v3_group(
     let mut children = Vec::new();
     for entry in read_dir_sorted(dir)? {
         let child_path = entry.path();
-        if !child_path.is_dir() {
+        if !entry_is_dir(&entry, &child_path) {
             continue;
         }
         let node_json = child_path.join("zarr.json");
@@ -490,7 +557,7 @@ fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
     let mut children = Vec::new();
     for entry in read_dir_sorted(dir)? {
         let child_path = entry.path();
-        if !child_path.is_dir() {
+        if !entry_is_dir(&entry, &child_path) {
             continue;
         }
         let child_name = entry.file_name().to_string_lossy().into_owned();
@@ -846,6 +913,74 @@ mod tests {
         assert_eq!(b.name, "b");
         assert_eq!(names(&b.data_vars), vec!["deep"]);
         assert!(b.children.is_empty());
+    }
+
+    /// The consolidated map is the source of truth when present: a store
+    /// whose only file on disk is the root `zarr.json` still yields the full
+    /// hierarchy described inside it, and nothing is walked.
+    #[test]
+    fn v3_consolidated_metadata_is_read_instead_of_walking() {
+        let dir = temp_store_dir("consolidated.zarr");
+        let array = serde_json::to_value(v3_array_node()).expect("serialize array");
+        let root = serde_json::json!({
+            "zarr_format": 3,
+            "node_type": "group",
+            "attributes": {"title": "root"},
+            "consolidated_metadata": {
+                "kind": "inline",
+                "must_understand": false,
+                "metadata": {
+                    "x": array,
+                    "g": {"zarr_format": 3, "node_type": "group",
+                          "attributes": {"level": 1},
+                          "consolidated_metadata": {"kind": "inline",
+                                                    "must_understand": false,
+                                                    "metadata": {}}},
+                    "g/y": array,
+                }
+            }
+        });
+        fs::write(dir.join("zarr.json"), root.to_string()).expect("write root zarr.json");
+
+        let summary = summarize_zarr(&dir).expect("summarize consolidated v3 store");
+        assert_eq!(summary.format, SourceFormat::ZarrV3);
+        assert_eq!(
+            summary.root.attrs,
+            vec![("title".to_owned(), AttrValue::Text("root".to_owned()))]
+        );
+        assert_eq!(names(&summary.root.data_vars), vec!["x"]);
+        assert_eq!(summary.root.children.len(), 1);
+        let g = &summary.root.children[0];
+        assert_eq!(g.name, "g");
+        assert_eq!(g.attrs, vec![("level".to_owned(), AttrValue::Int(1))]);
+        assert_eq!(names(&g.data_vars), vec!["y"]);
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    /// An unrecognized `consolidated_metadata` shape falls back to walking.
+    #[test]
+    fn v3_unrecognized_consolidated_kind_falls_back_to_walking() {
+        let dir = temp_store_dir("odd_consolidated.zarr");
+        let group = r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#;
+        let root = serde_json::json!({
+            "zarr_format": 3, "node_type": "group", "attributes": {},
+            "consolidated_metadata": {"kind": "elsewhere", "must_understand": false}
+        });
+        fs::write(dir.join("zarr.json"), root.to_string()).expect("write root zarr.json");
+        fs::create_dir(dir.join("walked")).expect("create child");
+        fs::write(dir.join("walked/zarr.json"), group).expect("write child zarr.json");
+
+        let summary = summarize_zarr(&dir).expect("summarize");
+        let children: Vec<&str> = summary
+            .root
+            .children
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(children, vec!["walked"]);
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[test]
