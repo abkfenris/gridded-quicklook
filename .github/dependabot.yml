@@ -13,3 +13,16 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      # One PR per week for minor/patch bumps across the 260+ locked crates;
+      # major bumps still get their own PR so breaking changes stand out.
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
