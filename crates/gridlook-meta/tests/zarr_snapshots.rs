@@ -103,3 +103,45 @@ fn simple_v3_coords_match_xarray_reference() {
     assert!(summary.root.dims.iter().any(|d| d.name == "y"));
     assert!(!coord_names.contains(&"y"));
 }
+
+/// With storage details requested, every array carries its codec chain,
+/// byte order, metadata fill value and chunk-key encoding — the payload
+/// behind `ncdump -s` for Zarr stores.
+#[test]
+fn simple_v3_zarr_storage_details_snapshot() {
+    use gridlook_meta::{SummarizeOptions, summarize_zarr_with};
+
+    let opts = SummarizeOptions {
+        storage_details: true,
+    };
+    let summary =
+        summarize_zarr_with(&fixture("simple_v3.zarr"), &opts).expect("summarize simple_v3.zarr");
+    assert_eq!(
+        summary.file_info.as_ref().map(|f| f.kind.as_str()),
+        Some("Zarr v3")
+    );
+    let codecs: Vec<&str> = summary
+        .root
+        .variable("temperature")
+        .and_then(|v| v.storage.as_ref())
+        .map(|s| s.codecs.iter().map(|c| c.name.as_str()).collect())
+        .unwrap_or_default();
+    assert_eq!(codecs, vec!["bytes", "zstd"]);
+    insta::assert_json_snapshot!(summary);
+}
+
+#[test]
+fn simple_v2_zarr_storage_details_snapshot() {
+    use gridlook_meta::{SummarizeOptions, summarize_zarr_with};
+
+    let opts = SummarizeOptions {
+        storage_details: true,
+    };
+    let summary =
+        summarize_zarr_with(&fixture("simple_v2.zarr"), &opts).expect("summarize simple_v2.zarr");
+    assert_eq!(
+        summary.file_info.as_ref().map(|f| f.kind.as_str()),
+        Some("Zarr v2")
+    );
+    insta::assert_json_snapshot!(summary);
+}

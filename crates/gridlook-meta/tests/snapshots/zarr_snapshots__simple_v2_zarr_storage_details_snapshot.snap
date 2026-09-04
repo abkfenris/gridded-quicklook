@@ -3,7 +3,7 @@ source: crates/gridlook-meta/tests/zarr_snapshots.rs
 expression: summary
 ---
 {
-  "format": "ZarrV3",
+  "format": "ZarrV2",
   "root": {
     "name": "",
     "dims": [
@@ -45,7 +45,27 @@ expression: summary
             "units",
             "days since 2024-01-01 00:00:00"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "blosc",
+              "configuration": {
+                "cname": "lz4",
+                "clevel": 5,
+                "shuffle": 1,
+                "blocksize": 0
+              }
+            }
+          ],
+          "order": "C",
+          "chunk_key_encoding": "v2."
+        }
       },
       {
         "name": "x",
@@ -61,10 +81,6 @@ expression: summary
         ],
         "attrs": [
           [
-            "_FillValue",
-            null
-          ],
-          [
             "long_name",
             "Cross-shore distance"
           ],
@@ -72,7 +88,28 @@ expression: summary
             "units",
             "km"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "blosc",
+              "configuration": {
+                "cname": "lz4",
+                "clevel": 5,
+                "shuffle": 1,
+                "blocksize": 0
+              }
+            }
+          ],
+          "fill_value": null,
+          "order": "C",
+          "chunk_key_encoding": "v2."
+        }
       }
     ],
     "data_vars": [
@@ -96,10 +133,6 @@ expression: summary
         ],
         "attrs": [
           [
-            "_FillValue",
-            null
-          ],
-          [
             "long_name",
             "Sea Water Salinity"
           ],
@@ -107,7 +140,28 @@ expression: summary
             "units",
             "psu"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "blosc",
+              "configuration": {
+                "cname": "lz4",
+                "clevel": 5,
+                "shuffle": 1,
+                "blocksize": 0
+              }
+            }
+          ],
+          "fill_value": null,
+          "order": "C",
+          "chunk_key_encoding": "v2."
+        }
       },
       {
         "name": "temperature",
@@ -129,10 +183,6 @@ expression: summary
         ],
         "attrs": [
           [
-            "_FillValue",
-            null
-          ],
-          [
             "long_name",
             "Sea Water Temperature"
           ],
@@ -140,7 +190,28 @@ expression: summary
             "units",
             "degC"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "blosc",
+              "configuration": {
+                "cname": "lz4",
+                "clevel": 5,
+                "shuffle": 1,
+                "blocksize": 0
+              }
+            }
+          ],
+          "fill_value": null,
+          "order": "C",
+          "chunk_key_encoding": "v2."
+        }
       }
     ],
     "attrs": [
@@ -164,5 +235,8 @@ expression: summary
       "time",
       "x"
     ]
+  },
+  "file_info": {
+    "kind": "Zarr v2"
   }
 }

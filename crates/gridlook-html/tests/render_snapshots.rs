@@ -27,6 +27,7 @@ fn coord(name: &str, dtype: &str, dims: &[&str], preview: &str) -> VarSummary {
         chunks: None,
         attrs: Vec::new(),
         preview: Some(preview.to_string()),
+        storage: None,
     }
 }
 
@@ -38,6 +39,7 @@ fn empty_group(name: &str) -> GroupSummary {
         data_vars: Vec::new(),
         attrs: Vec::new(),
         children: Vec::new(),
+        var_order: Vec::new(),
     }
 }
 
@@ -71,6 +73,7 @@ fn flat_dataset() -> DatasetSummary {
                     ),
                 ],
                 preview: Some("11.37 15.14 13.86 ... 17.82 17.03".to_string()),
+                storage: None,
             },
             VarSummary {
                 name: "salinity".to_string(),
@@ -80,6 +83,7 @@ fn flat_dataset() -> DatasetSummary {
                 chunks: None,
                 attrs: vec![("units".to_string(), AttrValue::Text("psu".to_string()))],
                 preview: Some("35.62 35.13 35.17 ... 34.77 34.66".to_string()),
+                storage: None,
             },
         ],
         attrs: vec![
@@ -106,11 +110,13 @@ fn flat_dataset() -> DatasetSummary {
             ),
         ],
         children: Vec::new(),
+        var_order: Vec::new(),
     };
     DatasetSummary {
         format: SourceFormat::NetCdf,
         root,
         version_info: None,
+        file_info: None,
     }
 }
 
@@ -128,9 +134,11 @@ fn nested_tree() -> DatasetSummary {
             chunks: None,
             attrs: Vec::new(),
             preview: Some("1013.0 ... 1000.0".to_string()),
+            storage: None,
         }],
         attrs: Vec::new(),
         children: Vec::new(),
+        var_order: Vec::new(),
     };
 
     let child_a = GroupSummary {
@@ -143,6 +151,7 @@ fn nested_tree() -> DatasetSummary {
             AttrValue::Text("first child".to_string()),
         )],
         children: vec![grandchild],
+        var_order: Vec::new(),
     };
 
     let child_b = GroupSummary {
@@ -157,9 +166,11 @@ fn nested_tree() -> DatasetSummary {
             chunks: None,
             attrs: Vec::new(),
             preview: None,
+            storage: None,
         }],
         attrs: Vec::new(),
         children: Vec::new(),
+        var_order: Vec::new(),
     };
 
     let root = GroupSummary {
@@ -172,12 +183,14 @@ fn nested_tree() -> DatasetSummary {
             AttrValue::Text("tree fixture".to_string()),
         )],
         children: vec![child_a, child_b],
+        var_order: Vec::new(),
     };
 
     DatasetSummary {
         format: SourceFormat::ZarrV3,
         root,
         version_info: None,
+        file_info: None,
     }
 }
 
@@ -215,6 +228,7 @@ fn empty_dataset() -> DatasetSummary {
         format: SourceFormat::ZarrV2,
         root: empty_group(""),
         version_info: None,
+        file_info: None,
     }
 }
 

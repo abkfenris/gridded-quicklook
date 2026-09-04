@@ -28,7 +28,7 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use gridlook_meta::model::{AttrValue, DimInfo, GroupSummary, VarSummary};
+use gridlook_meta::model::{AttrScalar, AttrValue, DimInfo, GroupSummary, VarSummary};
 
 /// Escapes the five characters HTML requires escaping in text/attribute
 /// content, matching Python's `html.escape(s, quote=True)`.
@@ -104,45 +104,38 @@ pub fn format_dims(dims: &[DimInfo], dims_with_index: &HashSet<&str>) -> String 
 /// equivalent scalar/list, since xarray's `summarize_attrs` just does
 /// `str(v)` on each attribute value.
 pub fn attr_value_display(v: &AttrValue) -> String {
-    match v {
-        AttrValue::Text(s) => s.clone(),
-        AttrValue::Int(i) => i.to_string(),
-        AttrValue::Float(f) => format_float(*f),
-        AttrValue::IntList(items) => {
-            let inner = items
-                .iter()
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{inner}]")
-        }
-        AttrValue::FloatList(items) => {
-            let inner = items
-                .iter()
-                .map(|f| format_float(*f))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{inner}]")
-        }
-        AttrValue::TextList(items) => {
-            let inner = items
-                .iter()
-                .map(|s| format!("'{s}'"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("[{inner}]")
-        }
+    let is_list = v.is_list();
+    let items: Vec<String> = v
+        .scalars()
+        .into_iter()
+        .map(|scalar| match scalar {
+            // Python's `str(list)` quotes strings inside a list but not a
+            // bare string.
+            AttrScalar::Text(s) if is_list => format!("'{s}'"),
+            AttrScalar::Text(s) => s.to_owned(),
+            AttrScalar::Int(i) => i.to_string(),
+            AttrScalar::UInt(u) => u.to_string(),
+            AttrScalar::F32(f) => format_float(f.into(), f.to_string()),
+            AttrScalar::F64(f) => format_float(f, f.to_string()),
+        })
+        .collect();
+    if is_list {
+        format!("[{}]", items.join(", "))
+    } else {
+        items.into_iter().next().unwrap_or_default()
     }
 }
 
 /// Formats a float the way Python's `str(float)` would (always with a
-/// decimal point), since Rust's `Display` for `f64` omits it for whole
-/// numbers (`1` instead of `1.0`).
-fn format_float(f: f64) -> String {
+/// decimal point), since Rust's `Display` for floats omits it for whole
+/// numbers (`1` instead of `1.0`). `shortest` is the value's own `Display`
+/// rendering (`f32`'s for `f32`, so `0.1f32` shows as `0.1`, not its `f64`
+/// expansion), used whenever the value isn't a whole number.
+fn format_float(f: f64, shortest: String) -> String {
     if f.is_finite() && f.fract() == 0.0 {
         format!("{f:.1}")
     } else {
-        f.to_string()
+        shortest
     }
 }
 
