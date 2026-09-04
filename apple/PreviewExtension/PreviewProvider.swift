@@ -28,8 +28,25 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
     }
 
     func providePreview(for request: QLFilePreviewRequest) async throws -> QLPreviewReply {
-        logger.info("providePreview called for \(request.fileURL.path, privacy: .public)")
-        let html = renderHTML(forFileAt: request.fileURL)
+        let url = request.fileURL
+        // The path is user data: keep it out of the unified log unless
+        // private data collection is explicitly enabled.
+        logger.info("providePreview called for \(url.path, privacy: .private)")
+
+        try Task.checkCancellation()
+
+        // The Rust renderer is a synchronous, potentially slow call (opening
+        // a large netCDF file, or spinning up a Tokio runtime and reading
+        // Icechunk snapshot files). Run it on its own thread rather than
+        // pinning one of Swift concurrency's cooperative-pool threads for
+        // the duration.
+        let html = await Task.detached(priority: .userInitiated) {
+            Self.renderHTML(forFileAt: url)
+        }.value
+
+        // Quick Look cancels previews the user has already moved past; no
+        // point building a reply nobody is waiting for.
+        try Task.checkCancellation()
         logger.info("rendered \(html.utf8.count, privacy: .public) bytes of HTML")
 
         let reply = QLPreviewReply(
@@ -56,7 +73,10 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
     /// document. `gridlook_render_html` never fails in the FFI sense -- on
     /// any error it returns a styled HTML error card instead of a distinct
     /// error code -- so there is no Swift-side error branch to write here.
-    private func renderHTML(forFileAt url: URL) -> String {
+    ///
+    /// Static (and touching no instance state) so it can run inside a
+    /// detached task without capturing `self`.
+    private static func renderHTML(forFileAt url: URL) -> String {
         url.withUnsafeFileSystemRepresentation { fsPath -> String in
             guard let fsPath else {
                 return Self.fallbackErrorHTML
