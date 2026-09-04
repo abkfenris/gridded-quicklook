@@ -1,0 +1,31 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header_with_specials(\"filters_v2.zarr\")"
+---
+netcdf filters_v2 {
+dimensions:
+	x = 3 ;
+	y = 2 ;
+variables:
+	short counts(x, y) ;
+		counts:units = "count" ;
+		counts:_Storage = "chunked" ;
+		counts:_ChunkSizes = 3, 2 ;
+		counts:_Endianness = "little" ;
+		counts:_Codecs = "delta({\"dtype\":\"<i2\",\"astype\":\"<i2\"})", "blosc({\"cname\":\"zstd\",\"clevel\":3,\"shuffle\":1,\"blocksize\":0})" ;
+		counts:_FillValue = -1 ;
+		counts:_Order = "F" ;
+		counts:_ChunkKeyEncoding = "v2." ;
+	char labels(x) ;
+		labels:_Storage = "chunked" ;
+		labels:_ChunkSizes = 3 ;
+		labels:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
+		labels:_FillValue = "" ;
+		labels:_Order = "C" ;
+		labels:_ChunkKeyEncoding = "v2." ;
+		labels:_StringLength = 6 ;
+
+// global attributes:
+		:title = "gridlook filters fixture" ;
+		:_Format = "Zarr v2" ;
+}

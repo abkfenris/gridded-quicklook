@@ -1,0 +1,15 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header(\"codecs_v3.zarr\")"
+---
+netcdf codecs_v3 {
+dimensions:
+	x = 3 ;
+	y = 2 ;
+variables:
+	float pressure(x, y) ;
+		pressure:units = "hPa" ;
+
+// global attributes:
+		:title = "gridlook codecs fixture" ;
+}

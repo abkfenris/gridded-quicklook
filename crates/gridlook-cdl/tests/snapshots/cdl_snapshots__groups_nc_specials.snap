@@ -1,0 +1,89 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header_with_specials(\"groups.nc\")"
+---
+netcdf groups {
+dimensions:
+	time = 4 ;
+	x = 3 ;
+	y = 2 ;
+variables:
+	float temperature(time, x, y) ;
+		temperature:_FillValue = NaNf ;
+		temperature:units = "degC" ;
+		temperature:long_name = "Sea Water Temperature" ;
+		temperature:_Storage = "chunked" ;
+		temperature:_ChunkSizes = 2, 3, 2 ;
+		temperature:_Endianness = "little" ;
+	float salinity(time, x, y) ;
+		salinity:_FillValue = NaNf ;
+		salinity:units = "psu" ;
+		salinity:long_name = "Sea Water Salinity" ;
+		salinity:_Storage = "contiguous" ;
+		salinity:_Endianness = "little" ;
+	int64 time(time) ;
+		time:units = "days since 2024-01-01 00:00:00" ;
+		time:calendar = "proleptic_gregorian" ;
+		time:_Storage = "contiguous" ;
+		time:_Endianness = "little" ;
+	float x(x) ;
+		x:_FillValue = NaNf ;
+		x:units = "km" ;
+		x:long_name = "Cross-shore distance" ;
+		x:_Storage = "contiguous" ;
+		x:_Endianness = "little" ;
+
+// global attributes:
+		:title = "gridlook simple fixture" ;
+		:institution = "NERACOOS" ;
+		:conventions = "CF-1.8" ;
+		:_Format = "netCDF-4" ;
+		:_NCProperties = "[nc-properties]" ;
+		:_SuperblockVersion = 2 ;
+		:_IsNetcdf4 = 1 ;
+
+group: group_a {
+  variables:
+  	float temperature(time, x, y) ;
+  		temperature:_FillValue = NaNf ;
+  		temperature:units = "degC" ;
+  		temperature:long_name = "Sea Water Temperature" ;
+  		temperature:_Storage = "contiguous" ;
+  		temperature:_Endianness = "little" ;
+
+  // group attributes:
+  		:title = "gridlook simple fixture" ;
+  		:institution = "NERACOOS" ;
+  		:conventions = "CF-1.8" ;
+
+  group: nested {
+    variables:
+    	float temperature(time, x, y) ;
+    		temperature:_FillValue = NaNf ;
+    		temperature:units = "degC" ;
+    		temperature:long_name = "Sea Water Temperature" ;
+    		temperature:_Storage = "contiguous" ;
+    		temperature:_Endianness = "little" ;
+
+    // group attributes:
+    		:title = "gridlook simple fixture" ;
+    		:institution = "NERACOOS" ;
+    		:conventions = "CF-1.8" ;
+    } // group nested
+  } // group group_a
+
+group: group_b {
+  variables:
+  	float salinity(time, x, y) ;
+  		salinity:_FillValue = NaNf ;
+  		salinity:units = "psu" ;
+  		salinity:long_name = "Sea Water Salinity" ;
+  		salinity:_Storage = "contiguous" ;
+  		salinity:_Endianness = "little" ;
+
+  // group attributes:
+  		:title = "gridlook simple fixture" ;
+  		:institution = "NERACOOS" ;
+  		:conventions = "CF-1.8" ;
+  } // group group_b
+}

@@ -1,0 +1,51 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header_with_specials(\"special.nc\")"
+---
+netcdf special {
+dimensions:
+	record = UNLIMITED ; // (3 currently)
+	x = 3 ;
+	name_strlen = 8 ;
+variables:
+	float temperature(record, x) ;
+		temperature:_FillValue = -9999.f ;
+		temperature:units = "degC" ;
+		temperature:scale_factor = 0.01f ;
+		temperature:_Storage = "chunked" ;
+		temperature:_ChunkSizes = 1, 3 ;
+		temperature:_DeflateLevel = 4 ;
+		temperature:_Shuffle = "true" ;
+		temperature:_Fletcher32 = "true" ;
+		temperature:_Endianness = "little" ;
+	short counts(x) ;
+		counts:valid_range = -50s, 50s ;
+		counts:flag_values = 1b, 2b, 3b ;
+		counts:flag_meanings = "low mid high" ;
+		counts:ubyte_attr = 255UB ;
+		counts:ushort_attr = 65535US ;
+		counts:uint_attr = 7U ;
+		counts:int64_attr = 9LL ;
+		counts:uint64_attr = 18446744073709551614ULL ;
+		counts:double_attr = 0.1 ;
+		counts:_Storage = "contiguous" ;
+		counts:_Endianness = "big" ;
+	char station_name(x, name_strlen) ;
+		station_name:long_name = "station name" ;
+		station_name:_Storage = "contiguous" ;
+	string notes(x) ;
+		notes:_Storage = "contiguous" ;
+	int crs ;
+		crs:epsg_code = 4326 ;
+		crs:_Storage = "contiguous" ;
+		crs:_Endianness = "little" ;
+		crs:_NoFill = "true" ;
+
+// global attributes:
+		:title = "gridlook special fixture" ;
+		:history = "created by generate.py\nsecond line" ;
+		:_Format = "netCDF-4" ;
+		:_NCProperties = "[nc-properties]" ;
+		:_SuperblockVersion = 2 ;
+		:_IsNetcdf4 = 1 ;
+}

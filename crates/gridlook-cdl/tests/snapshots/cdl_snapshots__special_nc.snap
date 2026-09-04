@@ -1,0 +1,34 @@
+---
+source: crates/gridlook-cdl/tests/cdl_snapshots.rs
+expression: "header(\"special.nc\")"
+---
+netcdf special {
+dimensions:
+	record = UNLIMITED ; // (3 currently)
+	x = 3 ;
+	name_strlen = 8 ;
+variables:
+	float temperature(record, x) ;
+		temperature:_FillValue = -9999.f ;
+		temperature:units = "degC" ;
+		temperature:scale_factor = 0.01f ;
+	short counts(x) ;
+		counts:valid_range = -50s, 50s ;
+		counts:flag_values = 1b, 2b, 3b ;
+		counts:flag_meanings = "low mid high" ;
+		counts:ubyte_attr = 255UB ;
+		counts:ushort_attr = 65535US ;
+		counts:uint_attr = 7U ;
+		counts:int64_attr = 9LL ;
+		counts:uint64_attr = 18446744073709551614ULL ;
+		counts:double_attr = 0.1 ;
+	char station_name(x, name_strlen) ;
+		station_name:long_name = "station name" ;
+	string notes(x) ;
+	int crs ;
+		crs:epsg_code = 4326 ;
+
+// global attributes:
+		:title = "gridlook special fixture" ;
+		:history = "created by generate.py\nsecond line" ;
+}
