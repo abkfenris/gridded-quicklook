@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["xarray", "netcdf4", "zarr", "icechunk", "pandas", "numpy"]
+# dependencies = ["xarray", "netcdf4", "h5py", "zarr", "icechunk", "pandas", "numpy"]
 #
 # [tool.uv]
 # exclude-newer = "2026-08-10T00:00:00Z"
@@ -25,6 +25,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import h5py
 import icechunk
 import numpy as np
 import pandas as pd
@@ -115,6 +116,26 @@ def write_netcdf_fixtures(ds: xr.Dataset, dt: xr.DataTree) -> None:
     )
 
 
+def write_plain_hdf5_fixture(ds: xr.Dataset) -> None:
+    """An HDF5 file written by h5py, *not* by the netCDF-4 library.
+
+    libnetcdf opens it all the same (datasets become variables over
+    ``phony_dim_N`` dimensions), but it carries none of netCDF-4's markers
+    (``_NCProperties``, dimension scales), which is what the reader keys on
+    to report it as HDF5 rather than netCDF.
+    """
+    with h5py.File(DATA_DIR / "plain.h5", "w") as f:
+        f.attrs["title"] = "gridlook plain HDF5 fixture"
+        f.attrs["written_by"] = "h5py"
+        temperature = f.create_dataset(
+            "temperature", data=ds["temperature"].values, chunks=(2, N_X, N_Y)
+        )
+        temperature.attrs["units"] = "degC"
+        f.create_dataset("x", data=ds["x"].values)
+        diagnostics = f.create_group("diagnostics")
+        diagnostics.create_dataset("salinity", data=ds["salinity"].values)
+
+
 def write_zarr_fixtures(ds: xr.Dataset, dt: xr.DataTree) -> None:
     ds.to_zarr(
         DATA_DIR / "simple_v3.zarr", mode="w", zarr_format=3, consolidated=False
@@ -183,6 +204,7 @@ def main() -> None:
     dt = make_tree(ds)
 
     write_netcdf_fixtures(ds, dt)
+    write_plain_hdf5_fixture(ds)
     write_zarr_fixtures(ds, dt)
     write_icechunk_fixture(ds)
     write_reference_html(ds, dt)
