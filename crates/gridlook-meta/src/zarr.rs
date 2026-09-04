@@ -472,21 +472,48 @@ fn v2_dtype_from_metadata(dtype: &DataTypeMetadataV2) -> String {
 }
 
 /// Numpy-style dtype string from a Zarr v2 typestring (e.g. `<f4`, `|S8`,
-/// `<i8`). The leading byte-order char (`<`/`>`/`=`/`|`) is dropped; the
-/// kind char plus item size in bytes is expanded into numpy's spelled-out
-/// name (`f4` → `float32`), matching netCDF's `dtype_string` convention.
-/// Anything not matching this scheme (rare/structured dtypes) is passed
+/// `<i8`, `<M8[ns]`). The leading byte-order char (`<`/`>`/`=`/`|`) is
+/// dropped; the kind char plus item size in bytes is expanded into numpy's
+/// spelled-out name (`f4` → `float32`), matching netCDF's `dtype_string`
+/// convention, and datetime/timedelta typestrings become
+/// `datetime64[unit]`/`timedelta64[unit]` as xarray displays them. Anything
+/// not matching this scheme (rare dtypes, malformed strings) is passed
 /// through verbatim.
+///
+/// Works on `char`s rather than byte offsets: `.zarray` contents are
+/// untrusted input, and slicing a typestring that happens to start with a
+/// multibyte character at a byte offset would panic.
 fn v2_dtype_string(dtype: &str) -> String {
-    let bytes = dtype.as_bytes();
-    if bytes.is_empty() {
+    let mut chars = dtype.chars();
+    let Some(first) = chars.next() else {
         return dtype.to_owned();
-    }
-    let (kind, rest) = if matches!(bytes[0], b'<' | b'>' | b'=' | b'|') && bytes.len() > 1 {
-        (bytes[1] as char, &dtype[2..])
-    } else {
-        (bytes[0] as char, &dtype[1..])
     };
+    let kind = if matches!(first, '<' | '>' | '=' | '|') {
+        match chars.next() {
+            Some(kind) => kind,
+            None => return dtype.to_owned(),
+        }
+    } else {
+        first
+    };
+    let rest = chars.as_str();
+
+    if matches!(kind, 'M' | 'm') {
+        let base = if kind == 'M' {
+            "datetime64"
+        } else {
+            "timedelta64"
+        };
+        return match rest {
+            // Generic (unit-less) datetime64 / timedelta64.
+            "8" => base.to_owned(),
+            _ => match rest.strip_prefix("8[").and_then(|r| r.strip_suffix(']')) {
+                Some(unit) if !unit.is_empty() => format!("{base}[{unit}]"),
+                _ => dtype.to_owned(),
+            },
+        };
+    }
+
     let Ok(count) = rest.parse::<usize>() else {
         return dtype.to_owned();
     };
@@ -696,6 +723,44 @@ mod tests {
             resolve_dim_names(&None, 2),
             vec!["dim_0".to_owned(), "dim_1".to_owned()]
         );
+    }
+
+    #[test]
+    fn v2_dtype_string_expands_numeric_and_string_typestrings() {
+        assert_eq!(v2_dtype_string("<f4"), "float32");
+        assert_eq!(v2_dtype_string(">f8"), "float64");
+        assert_eq!(v2_dtype_string("<i8"), "int64");
+        assert_eq!(v2_dtype_string("|u1"), "uint8");
+        assert_eq!(v2_dtype_string("<c16"), "complex128");
+        assert_eq!(v2_dtype_string("|b1"), "bool");
+        assert_eq!(v2_dtype_string("|S8"), "|S8");
+        assert_eq!(v2_dtype_string("<U3"), "<U3");
+        // No byte-order prefix is fine too.
+        assert_eq!(v2_dtype_string("f4"), "float32");
+    }
+
+    #[test]
+    fn v2_dtype_string_maps_datetime_and_timedelta_typestrings() {
+        assert_eq!(v2_dtype_string("<M8[ns]"), "datetime64[ns]");
+        assert_eq!(v2_dtype_string("<M8[us]"), "datetime64[us]");
+        assert_eq!(v2_dtype_string("<m8[s]"), "timedelta64[s]");
+        assert_eq!(v2_dtype_string("<M8"), "datetime64");
+        // Malformed unit brackets pass through untouched.
+        assert_eq!(v2_dtype_string("<M8[ns"), "<M8[ns");
+        assert_eq!(v2_dtype_string("<M8[]"), "<M8[]");
+    }
+
+    #[test]
+    fn v2_dtype_string_passes_through_unrecognized_input_without_panicking() {
+        assert_eq!(v2_dtype_string(""), "");
+        assert_eq!(v2_dtype_string("<"), "<");
+        assert_eq!(v2_dtype_string("<V16"), "<V16");
+        assert_eq!(v2_dtype_string("|O"), "|O");
+        // Multibyte first/second characters used to panic on a byte-offset
+        // slice that fell inside the character.
+        assert_eq!(v2_dtype_string("\u{e9}4"), "\u{e9}4");
+        assert_eq!(v2_dtype_string("<\u{fc}8"), "<\u{fc}8");
+        assert_eq!(v2_dtype_string("\u{1f600}"), "\u{1f600}");
     }
 
     #[test]
