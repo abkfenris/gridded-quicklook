@@ -45,7 +45,31 @@ expression: summary
             "units",
             "days since 2024-01-01 00:00:00"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": 0,
+          "chunk_key_encoding": "default/"
+        }
       },
       {
         "name": "x",
@@ -72,7 +96,31 @@ expression: summary
             "units",
             "km"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": null,
+          "chunk_key_encoding": "default/"
+        }
       }
     ],
     "data_vars": [
@@ -107,7 +155,31 @@ expression: summary
             "units",
             "psu"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": null,
+          "chunk_key_encoding": "default/"
+        }
       },
       {
         "name": "temperature",
@@ -140,7 +212,31 @@ expression: summary
             "units",
             "degC"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false,
+          "codecs": [
+            {
+              "name": "bytes",
+              "configuration": {
+                "endian": "little"
+              }
+            },
+            {
+              "name": "zstd",
+              "configuration": {
+                "level": 0,
+                "checksum": false
+              }
+            }
+          ],
+          "fill_value": null,
+          "chunk_key_encoding": "default/"
+        }
       }
     ],
     "attrs": [
@@ -164,5 +260,8 @@ expression: summary
       "time",
       "x"
     ]
+  },
+  "file_info": {
+    "kind": "Zarr v3"
   }
 }

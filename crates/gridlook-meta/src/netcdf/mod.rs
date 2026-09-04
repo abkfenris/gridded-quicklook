@@ -5,6 +5,8 @@
 //! format-agnostic [`DatasetSummary`]. Only metadata and small coordinate
 //! previews are read; bulk variable data is never touched.
 
+mod raw;
+
 use std::collections::HashSet;
 use std::ffi::{CString, c_int};
 use std::path::Path;
@@ -15,7 +17,11 @@ use ::netcdf::types::{FloatType, IntType, NcVariableType};
 use ::netcdf::{Attribute, AttributeValue, Dimension, Group, Variable};
 
 use crate::error::MetaError;
-use crate::model::{AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceFormat, VarSummary};
+use crate::model::{
+    AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceFormat, SummarizeOptions, VarSummary,
+};
+
+use self::raw::RawFile;
 
 /// Summarize the structure of a NetCDF or HDF5 file at `path`.
 ///
@@ -24,13 +30,36 @@ use crate::model::{AttrValue, DatasetSummary, DimInfo, GroupSummary, SourceForma
 /// [`SourceFormat::Hdf5`] so the format badge is honest about what wrote
 /// the file.
 pub fn summarize_netcdf(path: &Path) -> Result<DatasetSummary, MetaError> {
+    summarize_netcdf_with(path, &SummarizeOptions::default())
+}
+
+/// [`summarize_netcdf`] with control over how much detail is gathered.
+///
+/// With [`SummarizeOptions::storage_details`] set, the file is re-opened
+/// through the raw `libnetcdf` API after the structural walk (see
+/// [`raw`]) to fill in each variable's [`VarSummary::storage`] and the
+/// summary's [`DatasetSummary::file_info`].
+pub fn summarize_netcdf_with(
+    path: &Path,
+    opts: &SummarizeOptions,
+) -> Result<DatasetSummary, MetaError> {
+    // Hold libnetcdf's (reentrant) lock for the whole summary, not just per
+    // call. HDF5 keeps a process-global cache of datatype conversion paths;
+    // a path built while converting a variable-length (`string`) fill value
+    // remembers the file handle it was built against, and reusing it after
+    // that handle was closed by *another thread's* summary of the same file
+    // dereferences the freed handle (a segfault deep in H5T__conv_vlen).
+    // Serializing whole summaries means no other thread opens or closes a
+    // handle while this one is in flight.
+    let _serialized = netcdf_sys::libnetcdf_lock.lock();
+
     let file = ::netcdf::open(path).map_err(|source| MetaError::Open {
         path: path.to_path_buf(),
         source,
     })?;
     let format = detect_format(path);
 
-    let root = match file.root() {
+    let mut root = match file.root() {
         // netCDF-4 (and netCDF-4 classic) files expose a proper group tree.
         Some(group) => summarize_group(&group, true),
         // Classic/64-bit-offset/CDF5 files have no group API; fall back to
@@ -50,11 +79,43 @@ pub fn summarize_netcdf(path: &Path) -> Result<DatasetSummary, MetaError> {
         }
     };
 
+    // The structural walk is done with `file`; close it before the raw
+    // handle opens the same file so at most one handle is live at a time.
+    drop(file);
+
+    let file_info = if opts.storage_details {
+        let raw = RawFile::open(path)?;
+        attach_storage(&mut root, &raw, "")?;
+        Some(raw.file_info()?)
+    } else {
+        None
+    };
+
     Ok(DatasetSummary {
         format,
         root,
         version_info: None,
+        file_info,
     })
+}
+
+/// Fills in [`VarSummary::storage`] for every variable in `group` and its
+/// descendants. `group_path` is the group's full netCDF path (`""` for the
+/// root, `"/group_a/nested"` below it).
+fn attach_storage(
+    group: &mut GroupSummary,
+    raw: &RawFile,
+    group_path: &str,
+) -> Result<(), MetaError> {
+    let grp = raw.group_ncid(group_path)?;
+    for var in group.coords.iter_mut().chain(group.data_vars.iter_mut()) {
+        var.storage = Some(raw.var_storage(grp, &var.name)?);
+    }
+    for child in &mut group.children {
+        let child_path = format!("{group_path}/{}", child.name);
+        attach_storage(child, raw, &child_path)?;
+    }
+    Ok(())
 }
 
 /// Was the file at `path` written by the netCDF library, or is it HDF5 that
@@ -179,61 +240,33 @@ fn attr_entry(attr: &Attribute) -> (String, AttrValue) {
 }
 
 /// Converts a raw netCDF attribute value into the format-agnostic
-/// [`AttrValue`]. Exotic/rare numeric types (bytes, shorts, unsigned
-/// variants, ...) are widened into `Int`/`Float`/`IntList`/`FloatList`;
-/// this loses no information for the value ranges those types can hold,
-/// except `u64`/`u64[]` (`NC_UINT64`), which can exceed `i64::MAX` (e.g.
-/// `NC_FILL_UINT64`); those fall back to exact decimal text via
-/// [`ulonglong_to_attr_value`]/[`ulonglongs_to_attr_value`].
+/// [`AttrValue`], one variant per netCDF atomic type so the exact type
+/// (width, signedness, float precision) survives for renderers that print
+/// typed literals (CDL's `1.5f`, `2s`, `0b`, `18446744073709551614ULL`).
 fn attr_value_from(value: AttributeValue) -> AttrValue {
     match value {
-        AttributeValue::Uchar(v) => AttrValue::Int(v.into()),
-        AttributeValue::Uchars(v) => AttrValue::IntList(v.into_iter().map(i64::from).collect()),
-        AttributeValue::Schar(v) => AttrValue::Int(v.into()),
-        AttributeValue::Schars(v) => AttrValue::IntList(v.into_iter().map(i64::from).collect()),
-        AttributeValue::Ushort(v) => AttrValue::Int(v.into()),
-        AttributeValue::Ushorts(v) => AttrValue::IntList(v.into_iter().map(i64::from).collect()),
-        AttributeValue::Short(v) => AttrValue::Int(v.into()),
-        AttributeValue::Shorts(v) => AttrValue::IntList(v.into_iter().map(i64::from).collect()),
-        AttributeValue::Uint(v) => AttrValue::Int(v.into()),
-        AttributeValue::Uints(v) => AttrValue::IntList(v.into_iter().map(i64::from).collect()),
-        AttributeValue::Int(v) => AttrValue::Int(v.into()),
-        AttributeValue::Ints(v) => AttrValue::IntList(v.into_iter().map(i64::from).collect()),
-        AttributeValue::Ulonglong(v) => ulonglong_to_attr_value(v),
-        AttributeValue::Ulonglongs(v) => ulonglongs_to_attr_value(v),
+        AttributeValue::Uchar(v) => AttrValue::UInt8(v),
+        AttributeValue::Uchars(v) => AttrValue::UInt8List(v),
+        AttributeValue::Schar(v) => AttrValue::Int8(v),
+        AttributeValue::Schars(v) => AttrValue::Int8List(v),
+        AttributeValue::Ushort(v) => AttrValue::UInt16(v),
+        AttributeValue::Ushorts(v) => AttrValue::UInt16List(v),
+        AttributeValue::Short(v) => AttrValue::Int16(v),
+        AttributeValue::Shorts(v) => AttrValue::Int16List(v),
+        AttributeValue::Uint(v) => AttrValue::UInt32(v),
+        AttributeValue::Uints(v) => AttrValue::UInt32List(v),
+        AttributeValue::Int(v) => AttrValue::Int32(v),
+        AttributeValue::Ints(v) => AttrValue::Int32List(v),
+        AttributeValue::Ulonglong(v) => AttrValue::UInt64(v),
+        AttributeValue::Ulonglongs(v) => AttrValue::UInt64List(v),
         AttributeValue::Longlong(v) => AttrValue::Int(v),
         AttributeValue::Longlongs(v) => AttrValue::IntList(v),
-        AttributeValue::Float(v) => AttrValue::Float(v.into()),
-        AttributeValue::Floats(v) => AttrValue::FloatList(v.into_iter().map(f64::from).collect()),
+        AttributeValue::Float(v) => AttrValue::Float32(v),
+        AttributeValue::Floats(v) => AttrValue::Float32List(v),
         AttributeValue::Double(v) => AttrValue::Float(v),
         AttributeValue::Doubles(v) => AttrValue::FloatList(v),
         AttributeValue::Str(v) => AttrValue::Text(v),
         AttributeValue::Strs(v) => AttrValue::TextList(v),
-    }
-}
-
-/// Converts a single `NC_UINT64` attribute value, preserving values above
-/// `i64::MAX` (e.g. `NC_FILL_UINT64 = 18446744073709551614`) as exact
-/// decimal text instead of silently wrapping into a negative `i64`.
-fn ulonglong_to_attr_value(v: u64) -> AttrValue {
-    match i64::try_from(v) {
-        Ok(v) => AttrValue::Int(v),
-        Err(_) => AttrValue::Text(v.to_string()),
-    }
-}
-
-/// Converts an `NC_UINT64` array attribute value. If every element fits in
-/// `i64`, the whole list is kept numeric (`IntList`); otherwise the whole
-/// list is rendered as exact decimal text (`TextList`) so no single element
-/// silently wraps.
-fn ulonglongs_to_attr_value(v: Vec<u64>) -> AttrValue {
-    match v
-        .iter()
-        .map(|&x| i64::try_from(x))
-        .collect::<Result<_, _>>()
-    {
-        Ok(ints) => AttrValue::IntList(ints),
-        Err(_) => AttrValue::TextList(v.into_iter().map(|x| x.to_string()).collect()),
     }
 }
 
@@ -259,6 +292,7 @@ fn var_summary(var: &Variable, is_coord: bool) -> VarSummary {
         chunks,
         attrs,
         preview,
+        storage: None,
     }
 }
 
@@ -404,48 +438,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `NC_FILL_UINT64` exceeds `i64::MAX`; it used to be squeezed through
+    /// `i64` (wrapping to -2). The typed `UInt64` variant keeps it exact.
     #[test]
-    fn ulonglong_below_i64_max_stays_int() {
-        assert_eq!(ulonglong_to_attr_value(42), AttrValue::Int(42));
-        assert_eq!(
-            ulonglong_to_attr_value(i64::MAX as u64),
-            AttrValue::Int(i64::MAX)
-        );
-    }
-
-    #[test]
-    fn ulonglong_above_i64_max_becomes_exact_text() {
-        // NC_FILL_UINT64, the classic netCDF fill value for NC_UINT64: as
-        // i64 this wraps to -2, which is what the bug used to render.
+    fn uint64_attributes_keep_their_full_range() {
         let fill = 18_446_744_073_709_551_614_u64;
         assert_eq!(
-            ulonglong_to_attr_value(fill),
-            AttrValue::Text("18446744073709551614".to_owned())
+            attr_value_from(AttributeValue::Ulonglong(fill)),
+            AttrValue::UInt64(fill)
         );
         assert_eq!(
-            ulonglong_to_attr_value(i64::MAX as u64 + 1),
-            AttrValue::Text((i64::MAX as u64 + 1).to_string())
-        );
-    }
-
-    #[test]
-    fn ulonglongs_all_fit_stays_int_list() {
-        assert_eq!(
-            ulonglongs_to_attr_value(vec![0, 1, i64::MAX as u64]),
-            AttrValue::IntList(vec![0, 1, i64::MAX])
+            attr_value_from(AttributeValue::Ulonglongs(vec![0, fill])),
+            AttrValue::UInt64List(vec![0, fill])
         );
     }
 
     #[test]
-    fn ulonglongs_any_overflow_becomes_text_list() {
-        let fill = 18_446_744_073_709_551_614_u64;
+    fn narrow_numeric_types_are_preserved() {
         assert_eq!(
-            ulonglongs_to_attr_value(vec![0, fill, 2]),
-            AttrValue::TextList(vec![
-                "0".to_owned(),
-                "18446744073709551614".to_owned(),
-                "2".to_owned(),
-            ])
+            attr_value_from(AttributeValue::Float(1.5)),
+            AttrValue::Float32(1.5)
+        );
+        assert_eq!(
+            attr_value_from(AttributeValue::Schars(vec![1, 2])),
+            AttrValue::Int8List(vec![1, 2])
+        );
+        assert_eq!(
+            attr_value_from(AttributeValue::Short(-3)),
+            AttrValue::Int16(-3)
+        );
+        assert_eq!(attr_value_from(AttributeValue::Int(7)), AttrValue::Int32(7));
+        assert_eq!(
+            attr_value_from(AttributeValue::Longlong(9)),
+            AttrValue::Int(9)
+        );
+        assert_eq!(
+            attr_value_from(AttributeValue::Double(0.1)),
+            AttrValue::Float(0.1)
         );
     }
 }

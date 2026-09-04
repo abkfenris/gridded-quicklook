@@ -1,5 +1,6 @@
 ---
 source: crates/gridlook-meta/tests/netcdf_snapshots.rs
+assertion_line: 30
 expression: summary
 ---
 {
@@ -117,8 +118,15 @@ expression: summary
           }
         ],
         "attrs": [],
-        "children": []
+        "children": [],
+        "var_order": [
+          "salinity"
+        ]
       }
+    ],
+    "var_order": [
+      "temperature",
+      "x"
     ]
   }
 }

@@ -1,9 +1,9 @@
 ---
-source: crates/gridlook-meta/tests/zarr_snapshots.rs
+source: crates/gridlook-meta/tests/netcdf_snapshots.rs
 expression: summary
 ---
 {
-  "format": "ZarrV3",
+  "format": "NetCdf",
   "root": {
     "name": "",
     "dims": [
@@ -33,19 +33,24 @@ expression: summary
         "shape": [
           4
         ],
-        "chunks": [
-          4
-        ],
         "attrs": [
-          [
-            "calendar",
-            "proleptic_gregorian"
-          ],
           [
             "units",
             "days since 2024-01-01 00:00:00"
+          ],
+          [
+            "calendar",
+            "proleptic_gregorian"
           ]
-        ]
+        ],
+        "preview": "0 1 2 3",
+        "storage": {
+          "layout": "Contiguous",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false
+        }
       },
       {
         "name": "x",
@@ -56,23 +61,28 @@ expression: summary
         "shape": [
           3
         ],
-        "chunks": [
-          3
-        ],
         "attrs": [
           [
             "_FillValue",
             null
           ],
           [
-            "long_name",
-            "Cross-shore distance"
-          ],
-          [
             "units",
             "km"
+          ],
+          [
+            "long_name",
+            "Cross-shore distance"
           ]
-        ]
+        ],
+        "preview": "-10.0 0.0 10.0",
+        "storage": {
+          "layout": "Contiguous",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false
+        }
       }
     ],
     "data_vars": [
@@ -89,25 +99,27 @@ expression: summary
           3,
           2
         ],
-        "chunks": [
-          4,
-          3,
-          2
-        ],
         "attrs": [
           [
             "_FillValue",
             null
           ],
           [
-            "long_name",
-            "Sea Water Salinity"
-          ],
-          [
             "units",
             "psu"
+          ],
+          [
+            "long_name",
+            "Sea Water Salinity"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Contiguous",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false
+        }
       },
       {
         "name": "temperature",
@@ -123,7 +135,7 @@ expression: summary
           2
         ],
         "chunks": [
-          4,
+          2,
           3,
           2
         ],
@@ -133,36 +145,49 @@ expression: summary
             null
           ],
           [
-            "long_name",
-            "Sea Water Temperature"
-          ],
-          [
             "units",
             "degC"
+          ],
+          [
+            "long_name",
+            "Sea Water Temperature"
           ]
-        ]
+        ],
+        "storage": {
+          "layout": "Chunked",
+          "shuffle": false,
+          "fletcher32": false,
+          "endianness": "Little",
+          "no_fill": false
+        }
       }
     ],
     "attrs": [
       [
-        "conventions",
-        "CF-1.8"
+        "title",
+        "gridlook simple fixture"
       ],
       [
         "institution",
         "NERACOOS"
       ],
       [
-        "title",
-        "gridlook simple fixture"
+        "conventions",
+        "CF-1.8"
       ]
     ],
     "children": [],
     "var_order": [
-      "salinity",
       "temperature",
+      "salinity",
       "time",
       "x"
     ]
+  },
+  "file_info": {
+    "kind": "netCDF-4",
+    "nc_properties": "[nc-properties]",
+    "superblock_version": 2,
+    "is_netcdf4": true
   }
 }
