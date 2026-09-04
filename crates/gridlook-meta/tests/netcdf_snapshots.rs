@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gridlook_meta::{summarize_netcdf, SourceFormat};
+use gridlook_meta::{SourceFormat, summarize_netcdf};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

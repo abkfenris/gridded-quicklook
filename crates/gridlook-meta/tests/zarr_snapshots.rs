@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gridlook_meta::{summarize_zarr, GroupSummary, VarSummary};
+use gridlook_meta::{GroupSummary, VarSummary, summarize_zarr};
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
