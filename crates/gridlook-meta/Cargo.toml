@@ -30,6 +30,7 @@ default = []
 icechunk = ["dep:icechunk", "dep:tokio"]
 
 [dev-dependencies]
+tempfile = "3"
 insta = { version = "1", features = ["json", "redactions"] }
 # Self dev-dependency: turns the `icechunk` feature on for this crate's own
 # tests (Cargo unifies a package's features with its dev-dependencies' when

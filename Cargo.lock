@@ -644,6 +644,7 @@ dependencies = [
  "cbindgen",
  "gridlook-html",
  "gridlook-meta",
+ "tempfile",
 ]
 
 [[package]]
@@ -666,6 +667,7 @@ dependencies = [
  "netcdf-sys",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tokio",
  "zarrs_metadata",
