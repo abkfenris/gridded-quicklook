@@ -53,7 +53,7 @@ mod enabled {
 
     use crate::error::MetaError;
     use crate::model::{DatasetSummary, GroupSummary, SnapshotInfo, SourceFormat, VersionInfo};
-    use crate::zarr::{build_group_summary, empty_v3_group_node, v3_node_attrs, v3_var_summary};
+    use crate::zarr::build_v3_tree;
 
     /// The branch previewed for a repo. Icechunk has no configurable default
     /// branch (unlike git), so `main` is the only tip worth resolving.
@@ -171,71 +171,18 @@ mod enabled {
     /// list.
     ///
     /// `list_nodes` returns every node in the snapshot (root included) keyed
-    /// by absolute Zarr path, so the hierarchy is recovered by grouping each
-    /// node under its parent path rather than by walking storage.
+    /// by absolute Zarr path. Each node's document is parsed exactly once
+    /// into a map keyed by the plain-Zarr reader's relative-path convention,
+    /// and [`build_v3_tree`] recovers the hierarchy from that.
     fn build_tree(path: &Path, nodes: &[NodeSnapshot]) -> Result<GroupSummary, MetaError> {
-        // Absolute node path -> (leaf name, node). Ordered so that group
-        // children and variables come out alphabetically before
-        // `build_group_summary` does its own sorting.
-        let mut by_path: BTreeMap<String, &NodeSnapshot> = BTreeMap::new();
+        let mut by_path: BTreeMap<String, NodeMetadataV3> = BTreeMap::new();
         for node in nodes {
-            by_path.insert(normalize_path(&node.path.to_string()), node);
+            by_path.insert(
+                normalize_path(&node.path.to_string()),
+                parse_node(path, node)?,
+            );
         }
-
-        let root_meta = match by_path.get("") {
-            Some(node) => parse_node(path, node)?,
-            // A repo whose root group was never written has no root node;
-            // present it as an empty, attribute-less root group.
-            None => empty_v3_group_node(),
-        };
-        build_group(path, "", String::new(), &root_meta, &by_path)
-    }
-
-    fn build_group(
-        repo_path: &Path,
-        node_path: &str,
-        name: String,
-        meta: &NodeMetadataV3,
-        by_path: &BTreeMap<String, &NodeSnapshot>,
-    ) -> Result<GroupSummary, MetaError> {
-        let prefix = if node_path.is_empty() {
-            String::new()
-        } else {
-            format!("{node_path}/")
-        };
-
-        let mut vars = Vec::new();
-        let mut children = Vec::new();
-        for (child_path, child) in by_path {
-            let Some(rest) = child_path.strip_prefix(&prefix) else {
-                continue;
-            };
-            if rest.is_empty() || rest.contains('/') {
-                continue;
-            }
-            let child_meta = parse_node(repo_path, child)?;
-            match &child_meta {
-                NodeMetadataV3::Array(array) => vars.push(v3_var_summary(
-                    rest.to_owned(),
-                    array,
-                    Path::new(child_path),
-                )?),
-                NodeMetadataV3::Group(_) => children.push(build_group(
-                    repo_path,
-                    child_path,
-                    rest.to_owned(),
-                    &child_meta,
-                    by_path,
-                )?),
-            }
-        }
-
-        Ok(build_group_summary(
-            name,
-            v3_node_attrs(meta),
-            vars,
-            children,
-        ))
+        build_v3_tree(&by_path, path)
     }
 
     /// A node's `user_data` is the Zarr v3 `zarr.json` document verbatim, so
