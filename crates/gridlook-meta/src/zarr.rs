@@ -585,14 +585,16 @@ fn walk_v2_group(
 fn v2_var_summary(name: String, dir: &Path) -> Result<VarSummary, MetaError> {
     let array: ArrayMetadataV2 = read_json_as(&dir.join(".zarray"))?;
     let attrs = read_v2_attrs(dir)?;
-    v2_var_from_parts(name, &array, &attrs)
+    Ok(v2_var_from_parts(name, &array, &attrs))
 }
 
+/// Pure assembly of an already-parsed v2 array's metadata and attributes;
+/// nothing here can fail, all I/O and JSON parsing happens in the callers.
 fn v2_var_from_parts(
     name: String,
     array: &ArrayMetadataV2,
     attrs: &serde_json::Map<String, Value>,
-) -> Result<VarSummary, MetaError> {
+) -> VarSummary {
     let array_dimensions = attrs
         .get("_ARRAY_DIMENSIONS")
         .and_then(Value::as_array)
@@ -603,7 +605,7 @@ fn v2_var_from_parts(
         });
     let dims = resolve_dim_names(&array_dimensions, array.shape.len());
 
-    Ok(VarSummary {
+    VarSummary {
         name,
         dtype: v2_dtype_from_metadata(&array.dtype),
         dims,
@@ -611,7 +613,7 @@ fn v2_var_from_parts(
         chunks: Some(array.chunks.iter().map(|n| n.get()).collect()),
         attrs: json_object_to_attrs(attrs),
         preview: None,
-    })
+    }
 }
 
 /// Numpy-style dtype string for a Zarr v2 `dtype`. A `Simple` dtype is a
@@ -694,6 +696,16 @@ struct ConsolidatedMetadata {
     metadata: BTreeMap<String, Value>,
 }
 
+/// Splits a `.zmetadata` key into the node's relative path and the per-node
+/// file it names: `g/arr/.zarray` → `("g/arr", ".zarray")`, and a root-level
+/// `.zgroup` → `("", ".zgroup")`.
+fn split_consolidated_key(key: &str) -> (&str, &str) {
+    match key.rsplit_once('/') {
+        Some((node_path, file)) => (node_path, file),
+        None => ("", key),
+    }
+}
+
 fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaError> {
     let meta_path = store_dir.join(".zmetadata");
     let consolidated: ConsolidatedMetadata = read_json_as(&meta_path)?;
@@ -705,30 +717,29 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
     let mut attrs: BTreeMap<String, serde_json::Map<String, Value>> = BTreeMap::new();
 
     for (key, value) in consolidated.metadata {
-        if let Some(node_path) = key.strip_suffix("/.zgroup").or(match key.as_str() {
-            ".zgroup" => Some(""),
-            _ => None,
-        }) {
-            group_paths.insert(node_path.to_owned());
-        } else if let Some(node_path) = key.strip_suffix("/.zarray").or(match key.as_str() {
-            ".zarray" => Some(""),
-            _ => None,
-        }) {
-            let array: ArrayMetadataV2 =
-                serde_json::from_value(value).map_err(|source| MetaError::Json {
-                    path: meta_path.clone(),
-                    source,
-                })?;
-            arrays.insert(node_path.to_owned(), array);
-        } else if let Some(node_path) = key.strip_suffix("/.zattrs").or(match key.as_str() {
-            ".zattrs" => Some(""),
-            _ => None,
-        }) && let Some(map) = value.as_object()
-        {
-            attrs.insert(node_path.to_owned(), map.clone());
+        let (node_path, file) = split_consolidated_key(&key);
+        match file {
+            ".zgroup" => {
+                group_paths.insert(node_path.to_owned());
+            }
+            ".zarray" => {
+                let array: ArrayMetadataV2 =
+                    serde_json::from_value(value).map_err(|source| MetaError::Json {
+                        path: meta_path.clone(),
+                        source,
+                    })?;
+                arrays.insert(node_path.to_owned(), array);
+            }
+            ".zattrs" => {
+                if let Some(map) = value.as_object() {
+                    attrs.insert(node_path.to_owned(), map.clone());
+                }
+            }
+            // `.zmetadata` itself (nested, shouldn't occur) and any other
+            // key is ignored: only the three per-node file kinds above are
+            // meaningful.
+            _ => {}
         }
-        // `.zmetadata` itself (nested, shouldn't occur) and any other key is
-        // ignored: only the three per-node file kinds above are meaningful.
     }
 
     // Ensure the root is always treated as a group even if `.zmetadata`
@@ -769,7 +780,7 @@ fn build_v2_consolidated_group(
                 return None;
             }
             let var_attrs = attrs.get(path).unwrap_or(&empty);
-            v2_var_from_parts(rest.to_owned(), array, var_attrs).ok()
+            Some(v2_var_from_parts(rest.to_owned(), array, var_attrs))
         })
         .collect();
 
@@ -994,6 +1005,18 @@ mod tests {
             decode_base64_float_attr("_FillValue", &serde_json::json!(1.5)),
             None
         );
+    }
+
+    #[test]
+    fn split_consolidated_key_separates_node_path_from_file() {
+        assert_eq!(split_consolidated_key(".zgroup"), ("", ".zgroup"));
+        assert_eq!(split_consolidated_key("g/.zattrs"), ("g", ".zattrs"));
+        assert_eq!(
+            split_consolidated_key("g/arr/.zarray"),
+            ("g/arr", ".zarray")
+        );
+        // Not a per-node file name: falls through to the ignored branch.
+        assert_eq!(split_consolidated_key("foo.zgroup"), ("", "foo.zgroup"));
     }
 
     #[test]
