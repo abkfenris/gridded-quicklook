@@ -660,9 +660,11 @@ name = "gridlook-meta"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "gridlook-meta",
  "icechunk",
  "insta",
  "netcdf",
+ "netcdf-sys",
  "serde",
  "serde_json",
  "tempfile",
