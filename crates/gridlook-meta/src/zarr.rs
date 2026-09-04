@@ -38,10 +38,20 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     if v3_root.is_file() {
         let node: NodeMetadataV3 = read_json_as(&v3_root)?;
         let root = match node {
-            NodeMetadataV3::Group(group) => walk_v3_group(path, String::new(), group)?,
+            NodeMetadataV3::Group(group) => {
+                walk_v3_group(path, String::new(), group, &mut WalkGuard::default())?
+            }
             NodeMetadataV3::Array(array) => {
                 let var = v3_var_summary(root_array_name(path), &array, &v3_root)?;
-                build_group_summary(String::new(), &array.attributes, vec![var], Vec::new())
+                // The array's attributes belong to the variable (attached
+                // by `v3_var_summary`); the synthetic root group wrapping
+                // it has none of its own, same as the v2 root-array case.
+                build_group_summary(
+                    String::new(),
+                    &serde_json::Map::new(),
+                    vec![var],
+                    Vec::new(),
+                )
             }
         };
         return Ok(DatasetSummary {
@@ -56,7 +66,7 @@ pub fn summarize_zarr(path: &Path) -> Result<DatasetSummary, MetaError> {
     }
 
     if path.join(".zgroup").is_file() {
-        let root = walk_v2_group(path, String::new())?;
+        let root = walk_v2_group(path, String::new(), &mut WalkGuard::default())?;
         return Ok(DatasetSummary {
             format: SourceFormat::ZarrV2,
             root,
@@ -100,6 +110,63 @@ fn root_array_name(path: &Path) -> String {
         .map(|stem| stem.to_string_lossy().into_owned())
         .filter(|stem| !stem.is_empty())
         .unwrap_or_else(|| "array".to_owned())
+}
+
+/// Guards the recursive directory walkers (v2 and v3) against stores whose
+/// directory graph isn't a tree.
+///
+/// Both walkers descend into every subdirectory carrying node metadata, and
+/// `Path::is_dir` follows symlinks, so a symlink loop inside a group (`loop
+/// -> .` makes `loop/zarr.json` resolve to the group's own metadata) sends
+/// the walk back into a directory it is already inside. The kernel's
+/// per-lookup symlink limit eventually stops that (`ELOOP` after 40
+/// traversals on Linux, 32 on macOS), but not before the walk has produced
+/// that many nested phantom copies of the group. So each group's canonical
+/// path is checked against its ancestors', and a child that resolves to an
+/// enclosing group is reported as a malformed store rather than walked.
+///
+/// A plain depth cap backs that up: no real hierarchy is anywhere near
+/// [`MAX_GROUP_DEPTH`] levels deep, and bounding the recursion keeps a
+/// pathological store from exhausting the (small) stack of whatever thread
+/// Quick Look renders on.
+#[derive(Default)]
+struct WalkGuard {
+    /// Canonical paths of the groups currently being walked, root first.
+    ancestors: Vec<std::path::PathBuf>,
+}
+
+/// See [`WalkGuard`].
+const MAX_GROUP_DEPTH: usize = 64;
+
+impl WalkGuard {
+    /// Registers `dir` as the group now being walked; call [`Self::leave`]
+    /// once its children are done.
+    fn enter(&mut self, dir: &Path) -> Result<(), MetaError> {
+        // If the path can't be canonicalized (odd filesystem), fall back to
+        // the raw path: loop detection degrades, the depth cap still holds.
+        let canonical = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+        if self.ancestors.contains(&canonical) {
+            return Err(MetaError::Invalid {
+                path: dir.to_path_buf(),
+                message: format!(
+                    "symlink loop: resolves to the enclosing group {}",
+                    canonical.display()
+                ),
+            });
+        }
+        if self.ancestors.len() >= MAX_GROUP_DEPTH {
+            return Err(MetaError::Invalid {
+                path: dir.to_path_buf(),
+                message: format!("group nesting deeper than {MAX_GROUP_DEPTH} levels"),
+            });
+        }
+        self.ancestors.push(canonical);
+        Ok(())
+    }
+
+    fn leave(&mut self) {
+        self.ancestors.pop();
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -151,7 +218,7 @@ fn json_object_to_attrs(map: &serde_json::Map<String, Value>) -> Vec<(String, At
 /// to `_FillValue` only: any short string can *look* like base64, and only
 /// this attribute is known to carry the encoding.
 fn decode_base64_float_attr(key: &str, value: &Value) -> Option<AttrValue> {
-    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
 
     if key != "_FillValue" {
         return None;
@@ -282,7 +349,9 @@ fn walk_v3_group(
     dir: &Path,
     name: String,
     own: GroupMetadataV3,
+    guard: &mut WalkGuard,
 ) -> Result<GroupSummary, MetaError> {
+    guard.enter(dir)?;
     let mut vars = Vec::new();
     let mut children = Vec::new();
     for entry in read_dir_sorted(dir)? {
@@ -303,10 +372,11 @@ fn walk_v3_group(
                 vars.push(v3_var_summary(child_name, &array, &node_json)?);
             }
             NodeMetadataV3::Group(group) => {
-                children.push(walk_v3_group(&child_path, child_name, group)?);
+                children.push(walk_v3_group(&child_path, child_name, group, guard)?);
             }
         }
     }
+    guard.leave();
 
     Ok(build_group_summary(name, &own.attributes, vars, children))
 }
@@ -403,7 +473,12 @@ fn resolve_dim_names(names: &Option<Vec<Option<String>>>, ndim: usize) -> Vec<St
 // Zarr v2 (walked directly, node by node)
 // ---------------------------------------------------------------------
 
-fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
+fn walk_v2_group(
+    dir: &Path,
+    name: String,
+    guard: &mut WalkGuard,
+) -> Result<GroupSummary, MetaError> {
+    guard.enter(dir)?;
     let attrs = read_v2_attrs(dir)?;
 
     let mut vars = Vec::new();
@@ -417,11 +492,12 @@ fn walk_v2_group(dir: &Path, name: String) -> Result<GroupSummary, MetaError> {
         if child_path.join(".zarray").is_file() {
             vars.push(v2_var_summary(child_name, &child_path)?);
         } else if child_path.join(".zgroup").is_file() {
-            children.push(walk_v2_group(&child_path, child_name)?);
+            children.push(walk_v2_group(&child_path, child_name, guard)?);
         }
         // Anything else under a group directory isn't a Zarr node (there
         // are none in a v2 store at this level) and is skipped.
     }
+    guard.leave();
 
     Ok(build_group_summary(name, &attrs, vars, children))
 }
@@ -472,21 +548,48 @@ fn v2_dtype_from_metadata(dtype: &DataTypeMetadataV2) -> String {
 }
 
 /// Numpy-style dtype string from a Zarr v2 typestring (e.g. `<f4`, `|S8`,
-/// `<i8`). The leading byte-order char (`<`/`>`/`=`/`|`) is dropped; the
-/// kind char plus item size in bytes is expanded into numpy's spelled-out
-/// name (`f4` → `float32`), matching netCDF's `dtype_string` convention.
-/// Anything not matching this scheme (rare/structured dtypes) is passed
+/// `<i8`, `<M8[ns]`). The leading byte-order char (`<`/`>`/`=`/`|`) is
+/// dropped; the kind char plus item size in bytes is expanded into numpy's
+/// spelled-out name (`f4` → `float32`), matching netCDF's `dtype_string`
+/// convention, and datetime/timedelta typestrings become
+/// `datetime64[unit]`/`timedelta64[unit]` as xarray displays them. Anything
+/// not matching this scheme (rare dtypes, malformed strings) is passed
 /// through verbatim.
+///
+/// Works on `char`s rather than byte offsets: `.zarray` contents are
+/// untrusted input, and slicing a typestring that happens to start with a
+/// multibyte character at a byte offset would panic.
 fn v2_dtype_string(dtype: &str) -> String {
-    let bytes = dtype.as_bytes();
-    if bytes.is_empty() {
+    let mut chars = dtype.chars();
+    let Some(first) = chars.next() else {
         return dtype.to_owned();
-    }
-    let (kind, rest) = if matches!(bytes[0], b'<' | b'>' | b'=' | b'|') && bytes.len() > 1 {
-        (bytes[1] as char, &dtype[2..])
-    } else {
-        (bytes[0] as char, &dtype[1..])
     };
+    let kind = if matches!(first, '<' | '>' | '=' | '|') {
+        match chars.next() {
+            Some(kind) => kind,
+            None => return dtype.to_owned(),
+        }
+    } else {
+        first
+    };
+    let rest = chars.as_str();
+
+    if matches!(kind, 'M' | 'm') {
+        let base = if kind == 'M' {
+            "datetime64"
+        } else {
+            "timedelta64"
+        };
+        return match rest {
+            // Generic (unit-less) datetime64 / timedelta64.
+            "8" => base.to_owned(),
+            _ => match rest.strip_prefix("8[").and_then(|r| r.strip_suffix(']')) {
+                Some(unit) if !unit.is_empty() => format!("{base}[{unit}]"),
+                _ => dtype.to_owned(),
+            },
+        };
+    }
+
     let Ok(count) = rest.parse::<usize>() else {
         return dtype.to_owned();
     };
@@ -538,10 +641,9 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
         } else if let Some(node_path) = key.strip_suffix("/.zattrs").or(match key.as_str() {
             ".zattrs" => Some(""),
             _ => None,
-        }) {
-            if let Some(map) = value.as_object() {
-                attrs.insert(node_path.to_owned(), map.clone());
-            }
+        }) && let Some(map) = value.as_object()
+        {
+            attrs.insert(node_path.to_owned(), map.clone());
         }
         // `.zmetadata` itself (nested, shouldn't occur) and any other key is
         // ignored: only the three per-node file kinds above are meaningful.
@@ -698,6 +800,81 @@ mod tests {
         );
     }
 
+    /// The JSON snapshots can't see this: `AttrValue::Float(NaN)` serializes
+    /// as `null`, indistinguishable from a missing value, so the decode is
+    /// asserted here directly.
+    #[test]
+    fn base64_fill_value_decodes_to_the_float_it_encodes() {
+        // zarr-python's V3 encoder writes float64 NaN as the base64 of its
+        // little-endian bytes.
+        let nan64 = serde_json::json!("AAAAAAAA+H8=");
+        match decode_base64_float_attr("_FillValue", &nan64) {
+            Some(AttrValue::Float(f)) => assert!(f.is_nan(), "expected NaN, got {f}"),
+            other => panic!("expected Float(NaN), got {other:?}"),
+        }
+
+        // float32 +inf: 0x7f800000 little-endian.
+        let inf32 = serde_json::json!("AACAfw==");
+        match decode_base64_float_attr("_FillValue", &inf32) {
+            Some(AttrValue::Float(f)) => assert_eq!(f, f64::INFINITY),
+            other => panic!("expected Float(inf), got {other:?}"),
+        }
+
+        // Only _FillValue is decoded; any other short string stays text.
+        assert_eq!(decode_base64_float_attr("units", &nan64), None);
+        // Wrong byte lengths and non-base64 are left alone too.
+        assert_eq!(
+            decode_base64_float_attr("_FillValue", &serde_json::json!("AAA=")),
+            None
+        );
+        assert_eq!(
+            decode_base64_float_attr("_FillValue", &serde_json::json!("not base64!")),
+            None
+        );
+        assert_eq!(
+            decode_base64_float_attr("_FillValue", &serde_json::json!(1.5)),
+            None
+        );
+    }
+
+    #[test]
+    fn v2_dtype_string_expands_numeric_and_string_typestrings() {
+        assert_eq!(v2_dtype_string("<f4"), "float32");
+        assert_eq!(v2_dtype_string(">f8"), "float64");
+        assert_eq!(v2_dtype_string("<i8"), "int64");
+        assert_eq!(v2_dtype_string("|u1"), "uint8");
+        assert_eq!(v2_dtype_string("<c16"), "complex128");
+        assert_eq!(v2_dtype_string("|b1"), "bool");
+        assert_eq!(v2_dtype_string("|S8"), "|S8");
+        assert_eq!(v2_dtype_string("<U3"), "<U3");
+        // No byte-order prefix is fine too.
+        assert_eq!(v2_dtype_string("f4"), "float32");
+    }
+
+    #[test]
+    fn v2_dtype_string_maps_datetime_and_timedelta_typestrings() {
+        assert_eq!(v2_dtype_string("<M8[ns]"), "datetime64[ns]");
+        assert_eq!(v2_dtype_string("<M8[us]"), "datetime64[us]");
+        assert_eq!(v2_dtype_string("<m8[s]"), "timedelta64[s]");
+        assert_eq!(v2_dtype_string("<M8"), "datetime64");
+        // Malformed unit brackets pass through untouched.
+        assert_eq!(v2_dtype_string("<M8[ns"), "<M8[ns");
+        assert_eq!(v2_dtype_string("<M8[]"), "<M8[]");
+    }
+
+    #[test]
+    fn v2_dtype_string_passes_through_unrecognized_input_without_panicking() {
+        assert_eq!(v2_dtype_string(""), "");
+        assert_eq!(v2_dtype_string("<"), "<");
+        assert_eq!(v2_dtype_string("<V16"), "<V16");
+        assert_eq!(v2_dtype_string("|O"), "|O");
+        // Multibyte first/second characters used to panic on a byte-offset
+        // slice that fell inside the character.
+        assert_eq!(v2_dtype_string("\u{e9}4"), "\u{e9}4");
+        assert_eq!(v2_dtype_string("<\u{fc}8"), "<\u{fc}8");
+        assert_eq!(v2_dtype_string("\u{1f600}"), "\u{1f600}");
+    }
+
     #[test]
     fn v2_structured_dtype_displays_as_compound() {
         let dtype = DataTypeMetadataV2::Structured(Vec::new());
@@ -741,13 +918,16 @@ mod tests {
             &serde_json::json!({ "chunk_shape": [2] }),
         )
         .expect("build regular chunk grid metadata");
-        let array = ArrayMetadataV3::new(
+        let mut array = ArrayMetadataV3::new(
             vec![2],
             chunk_grid,
             MetadataV3::new("float32"),
             FillValueMetadataV3::Null,
             Vec::new(),
         );
+        array
+            .attributes
+            .insert("units".to_owned(), serde_json::json!("m"));
         fs::write(
             dir.join("zarr.json"),
             serde_json::to_string(&array).expect("serialize array metadata"),
@@ -762,6 +942,110 @@ mod tests {
             .map(|v| v.name.as_str())
             .collect();
         assert_eq!(names, vec!["mydata"]);
+
+        // The array's attributes are the variable's, not the synthetic root
+        // group's: they used to be attached to both and so rendered twice.
+        assert_eq!(
+            summary.root.data_vars[0].attrs,
+            vec![("units".to_owned(), AttrValue::Text("m".to_owned()))]
+        );
+        assert!(
+            summary.root.attrs.is_empty(),
+            "root group must not duplicate the array's attrs, got {:?}",
+            summary.root.attrs
+        );
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    /// A symlink loop inside a group (`loop -> .`) makes `loop/zarr.json`
+    /// resolve to the group's own metadata. Unguarded, the walk re-entered
+    /// the group until the kernel's symlink-traversal limit hit (`ELOOP`),
+    /// yielding ~40 nested phantom `loop` groups. It must instead stop with
+    /// an error naming the loop.
+    #[cfg(unix)]
+    #[test]
+    fn v3_symlink_loop_is_reported_instead_of_walked() {
+        let dir = temp_store_dir("loop_v3.zarr");
+        fs::write(
+            dir.join("zarr.json"),
+            r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#,
+        )
+        .expect("write root zarr.json");
+        std::os::unix::fs::symlink(".", dir.join("loop")).expect("create symlink loop");
+
+        let err = summarize_zarr(&dir).expect_err("a symlink loop must be an error");
+        assert!(
+            matches!(err, MetaError::Invalid { .. }),
+            "expected MetaError::Invalid, got {err:?}"
+        );
+        assert!(
+            err.to_string().contains("symlink loop"),
+            "error should hint at the cause, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn v2_symlink_loop_is_reported_instead_of_walked() {
+        let dir = temp_store_dir("loop_v2.zarr");
+        fs::write(dir.join(".zgroup"), r#"{"zarr_format":2}"#).expect("write root .zgroup");
+        std::os::unix::fs::symlink(".", dir.join("loop")).expect("create symlink loop");
+
+        let err = summarize_zarr(&dir).expect_err("a symlink loop must be an error");
+        assert!(
+            matches!(err, MetaError::Invalid { .. }),
+            "expected MetaError::Invalid, got {err:?}"
+        );
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    /// A symlink to a *sibling* group is not a loop: the target is walked
+    /// once more under the link's name, which is odd but finite and not the
+    /// guard's business.
+    #[cfg(unix)]
+    #[test]
+    fn v3_symlink_to_sibling_group_is_not_a_loop() {
+        let dir = temp_store_dir("sibling_v3.zarr");
+        let group = r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#;
+        fs::write(dir.join("zarr.json"), group).expect("write root zarr.json");
+        fs::create_dir(dir.join("a")).expect("create a");
+        fs::write(dir.join("a/zarr.json"), group).expect("write a/zarr.json");
+        std::os::unix::fs::symlink("a", dir.join("b")).expect("symlink b -> a");
+
+        let summary = summarize_zarr(&dir).expect("sibling symlink must summarize");
+        let names: Vec<&str> = summary
+            .root
+            .children
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["a", "b"]);
+
+        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
+    }
+
+    #[test]
+    fn walk_guard_caps_nesting_depth() {
+        let mut guard = WalkGuard::default();
+        let dir = temp_store_dir("deep.zarr");
+        // Re-entering the *same* directory is a loop, so give each level a
+        // distinct (nonexistent, hence non-canonicalizable) path.
+        for i in 0..MAX_GROUP_DEPTH {
+            guard
+                .enter(&dir.join(format!("level{i}")))
+                .expect("within the cap");
+        }
+        let err = guard
+            .enter(&dir.join("one-too-many"))
+            .expect_err("past the cap");
+        assert!(
+            err.to_string().contains("deeper than"),
+            "unexpected error: {err}"
+        );
 
         let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }

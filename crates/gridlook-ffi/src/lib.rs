@@ -17,8 +17,8 @@ use std::path::Path;
 
 use gridlook_html::{html_escape, render_page};
 use gridlook_meta::{
-    is_icechunk_repo, summarize_icechunk, summarize_netcdf, summarize_zarr, DatasetSummary,
-    MetaError,
+    DatasetSummary, MetaError, is_icechunk_repo, summarize_icechunk, summarize_netcdf,
+    summarize_zarr,
 };
 
 /// A fixed, dynamic-content-free fallback used only if we somehow fail to
@@ -53,7 +53,7 @@ const ZARR_ROOT_MARKERS: &[&str] = &["zarr.json", ".zgroup", ".zarray", ".zmetad
 ///
 /// `path`, if non-null, must point to a valid, NUL-terminated C string that
 /// remains valid for the duration of this call.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn gridlook_render_html(path: *const c_char) -> *mut c_char {
     let html = panic::catch_unwind(AssertUnwindSafe(|| render_html_inner(path)))
         .unwrap_or_else(|_| error_card("gridlook-ffi panicked while rendering this preview."));
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn gridlook_render_html(path: *const c_char) -> *mut c_cha
 ///
 /// `ptr` must be either NULL or a pointer previously returned by
 /// [`gridlook_render_html`] that has not already been freed.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn gridlook_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
@@ -105,7 +105,7 @@ fn render_html_inner(path: *const c_char) -> String {
             None => {
                 return error_card(
                     "Unsupported folder: not a Zarr store or an Icechunk repository.",
-                )
+                );
             }
         }
     } else {
@@ -115,7 +115,7 @@ fn render_html_inner(path: *const c_char) -> String {
                 return match path.extension().and_then(|e| e.to_str()) {
                     Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
                     None => error_card("Unsupported file: no recognizable file extension."),
-                }
+                };
             }
         }
     };
