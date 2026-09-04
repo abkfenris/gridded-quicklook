@@ -24,7 +24,7 @@ fn plain_zarr_stores_are_not_icechunk_repos() {
 mod with_reader {
     use super::fixture;
 
-    use gridlook_meta::{summarize_icechunk, SourceFormat};
+    use gridlook_meta::{SourceFormat, summarize_icechunk};
 
     /// Snapshot ids and commit timestamps are regenerated every time
     /// `mise run fixtures` runs, so they are redacted: the snapshot asserts

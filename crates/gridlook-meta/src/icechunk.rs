@@ -45,10 +45,10 @@ mod enabled {
     use std::collections::BTreeMap;
     use std::path::Path;
 
+    use icechunk::Repository;
     use icechunk::format::snapshot::NodeSnapshot;
     use icechunk::format::{Path as IcePath, SnapshotId};
     use icechunk::repository::VersionInfo as IceVersionInfo;
-    use icechunk::Repository;
     use zarrs_metadata::v3::NodeMetadataV3;
 
     use crate::error::MetaError;
