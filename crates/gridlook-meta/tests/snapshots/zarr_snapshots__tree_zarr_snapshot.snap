@@ -297,8 +297,14 @@ expression: summary
                 "gridlook simple fixture"
               ]
             ],
-            "children": []
+            "children": [],
+            "var_order": [
+              "temperature"
+            ]
           }
+        ],
+        "var_order": [
+          "temperature"
         ]
       },
       {
@@ -370,8 +376,17 @@ expression: summary
             "gridlook simple fixture"
           ]
         ],
-        "children": []
+        "children": [],
+        "var_order": [
+          "salinity"
+        ]
       }
+    ],
+    "var_order": [
+      "salinity",
+      "temperature",
+      "time",
+      "x"
     ]
   }
 }

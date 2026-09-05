@@ -46,9 +46,7 @@ expression: summary
         "attrs": [
           [
             "units",
-            [
-              "degC"
-            ]
+            "degC"
           ]
         ]
       },
@@ -67,15 +65,11 @@ expression: summary
     "attrs": [
       [
         "title",
-        [
-          "gridlook plain HDF5 fixture"
-        ]
+        "gridlook plain HDF5 fixture"
       ],
       [
         "written_by",
-        [
-          "h5py"
-        ]
+        "h5py"
       ]
     ],
     "children": [
@@ -117,8 +111,15 @@ expression: summary
           }
         ],
         "attrs": [],
-        "children": []
+        "children": [],
+        "var_order": [
+          "salinity"
+        ]
       }
+    ],
+    "var_order": [
+      "temperature",
+      "x"
     ]
   }
 }

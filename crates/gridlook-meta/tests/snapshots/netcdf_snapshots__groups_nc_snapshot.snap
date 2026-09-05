@@ -246,8 +246,14 @@ expression: summary
                 "CF-1.8"
               ]
             ],
-            "children": []
+            "children": [],
+            "var_order": [
+              "temperature"
+            ]
           }
+        ],
+        "var_order": [
+          "temperature"
         ]
       },
       {
@@ -298,8 +304,17 @@ expression: summary
             "CF-1.8"
           ]
         ],
-        "children": []
+        "children": [],
+        "var_order": [
+          "salinity"
+        ]
       }
+    ],
+    "var_order": [
+      "temperature",
+      "salinity",
+      "time",
+      "x"
     ]
   }
 }

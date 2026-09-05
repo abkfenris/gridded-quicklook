@@ -157,6 +157,12 @@ expression: summary
         "gridlook simple fixture"
       ]
     ],
-    "children": []
+    "children": [],
+    "var_order": [
+      "salinity",
+      "temperature",
+      "time",
+      "x"
+    ]
   }
 }
