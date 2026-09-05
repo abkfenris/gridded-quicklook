@@ -17,15 +17,16 @@ commit history of their `main` branch.
 
 | Kind             | Format               | Recognized by                                   | Notes                                          |
 | ---------------- | -------------------- | ----------------------------------------------- | ---------------------------------------------- |
-| File             | NetCDF-3 / NetCDF-4  | `.nc`, `.nc4`, `.cdf`                           | Groups (DataTree) supported                    |
-| File             | HDF5                 | `.h5`, `.hdf5`, `.he5`                          | Same netCDF-4 reader; badge says HDF5 when the file lacks netCDF-4's markers |
+| File             | NetCDF-3 / NetCDF-4  | `CDF` / HDF5 signature, or `.nc`, `.nc4`, `.cdf` | Groups (DataTree) supported                    |
+| File             | HDF5                 | HDF5 signature, or `.h5`, `.hdf5`, `.he5`        | Same netCDF-4 reader; badge says HDF5 when the file lacks netCDF-4's markers |
 | Directory store  | Zarr v2              | `.zgroup` / `.zarray` / `.zmetadata` at the root | Consolidated metadata used when present        |
 | Directory store  | Zarr v3              | `zarr.json` at the root                          | Directory tree walked node by node             |
 | Directory store  | Icechunk (spec v1/v2) | `snapshots/` plus `refs/` or `repo` at the root | Tip of `main`, plus its snapshot ancestry      |
 
-Directory stores are dispatched on their **contents**, not their name, so a
-store called anything at all previews correctly once Quick Look hands it
-over. For the Finder to offer a preview in the first place, though, the
+Both files and directory stores are dispatched on their **contents**, not
+their name: a file is sniffed for the classic-netCDF or HDF5 signature (the
+extension list is only a fallback), and a store called anything at all
+previews correctly once Quick Look hands it over. For the Finder to offer a preview in the first place, though, the
 directory needs a recognized extension: the app declares `dev.gridlook.zarr`
 (`.zarr`) and `dev.gridlook.icechunk` (`.icechunk`) as exported UTIs
 conforming to `com.apple.package`.
