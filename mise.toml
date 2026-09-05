@@ -33,6 +33,17 @@ run = "./crates/gridlook-html/sync_xarray_assets.py"
 description = "Run all pre-commit hooks against the full repo"
 run = "prek run --all-files"
 
+[tasks.icons]
+description = "Regenerate the app icon and document badge (SVG sources -> apple/App/Assets.xcassets) from docs/icon"
+# Rasterizes with headless Chromium via Playwright, so this needs node and a
+# playwright install on the module path (`npx --yes playwright@1.56 install
+# chromium` once). The generated PNG files are committed, so this only needs to
+# run after the icon sources change.
+run = """
+python3 docs/icon/generate.py
+node docs/icon/assets.mjs
+"""
+
 [tasks.xcodeproj]
 description = "Generate the Xcode project from apple/project.yml"
 run = "xcodegen generate --spec apple/project.yml"
