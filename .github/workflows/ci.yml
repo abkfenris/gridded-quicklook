@@ -67,20 +67,44 @@ jobs:
 
   # Builds the release gridlook-ffi staticlib for this PR and for its base
   # branch and posts (or updates) one sticky comment with both sizes and the
-  # delta. It runs on Linux as a proxy for the macOS artifact the app
-  # extension actually links: the same object code (libnetcdf, libhdf5, zstd,
-  # icechunk's dependency tree) dominates both, so relative changes track.
-  # Report-only: growth never fails the job.
-  staticlib_size:
-    name: staticlib size
+  # delta. The two builds are independent, so they run as parallel matrix
+  # legs; the report job below joins them. It runs on Linux as a proxy for
+  # the macOS artifact the app extension actually links: the same object
+  # code (libnetcdf, libhdf5, zstd, icechunk's dependency tree) dominates
+  # both, so relative changes track. Report-only: growth never fails the job.
+  staticlib_size_build:
+    name: staticlib size (${{ matrix.side }})
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-      pull-requests: write # post and update the sticky size-report comment
+    strategy:
+      matrix:
+        include:
+          - side: head
+            manifest: Cargo.toml
+            target_dir: target
+          - side: base
+            manifest: base/Cargo.toml
+            target_dir: base/target
+    # Each leg sets only its own output; GitHub merges the per-leg outputs
+    # because an empty value from the other leg does not overwrite it.
+    outputs:
+      head: ${{ steps.size.outputs.head }}
+      base: ${{ steps.size.outputs.base }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+
+      # The base leg keeps the PR checkout at the root and builds the base
+      # manifest from there, so mise resolves this repo's toolchain pins:
+      # its config lookup stops at base/'s own .git boundary, so from inside
+      # base/ it would find nothing.
+      - name: Checkout base branch
+        if: matrix.side == 'base'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
           persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
@@ -88,40 +112,33 @@ jobs:
           install: true
           cache: true
 
-      - name: Build PR staticlib
-        run: cargo build --release -p gridlook-ffi
-
-      - name: Record PR size
-        id: head
-        run: echo "bytes=$(stat -c%s target/release/libgridlook_ffi.a)" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout base branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.base_ref }}
-          path: base
-          persist-credentials: false
-
-      # Run cargo from the outer checkout, pointed at the base manifest, so
-      # mise resolves this repo's toolchain pins: its config lookup stops at
-      # base/'s own .git boundary, so from inside base/ it would find nothing.
-      - name: Build base staticlib
-        run: cargo build --release -p gridlook-ffi --manifest-path base/Cargo.toml --target-dir base/target
-
-      - name: Record base size
-        id: base
-        run: echo "bytes=$(stat -c%s base/target/release/libgridlook_ffi.a)" >> "$GITHUB_OUTPUT"
-
-      - name: Post size comment
-        # A fork's GITHUB_TOKEN can't write comments; the numbers are still
-        # in the job log above.
-        if: github.event.pull_request.head.repo.full_name == github.repository
+      - name: Build staticlib
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MANIFEST: ${{ matrix.manifest }}
+          TARGET_DIR: ${{ matrix.target_dir }}
+        run: cargo build --release -p gridlook-ffi --manifest-path "$MANIFEST" --target-dir "$TARGET_DIR"
+
+      - name: Record size
+        id: size
+        env:
+          SIDE: ${{ matrix.side }}
+          TARGET_DIR: ${{ matrix.target_dir }}
+        run: echo "${SIDE}=$(stat -c%s "$TARGET_DIR/release/libgridlook_ffi.a")" >> "$GITHUB_OUTPUT"
+
+  staticlib_size:
+    name: staticlib size
+    runs-on: ubuntu-latest
+    needs: staticlib_size_build
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write # post and update the sticky size-report comment
+    steps:
+      - name: Compose size report
+        env:
           BASE_REF: ${{ github.base_ref }}
-          BASE_BYTES: ${{ steps.base.outputs.bytes }}
-          HEAD_BYTES: ${{ steps.head.outputs.bytes }}
+          BASE_BYTES: ${{ needs.staticlib_size_build.outputs.base }}
+          HEAD_BYTES: ${{ needs.staticlib_size_build.outputs.head }}
         run: |
           DELTA=$(( HEAD_BYTES - BASE_BYTES ))
           BASE_MB=$(awk "BEGIN { printf \"%.1f\", $BASE_BYTES / 1048576 }")
@@ -151,16 +168,28 @@ jobs:
             echo "${VERDICT}"
             echo ""
             echo "_Release build of \`gridlook-ffi\` on ubuntu-latest, a proxy for the macOS staticlib the app extension links._"
-          } > /tmp/comment.md
+          } > "$RUNNER_TEMP/comment.md"
 
+          # The numbers also land in the log and the run summary, which is
+          # all a fork PR gets (see below).
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/comment.md"
+
+      - name: Post size comment
+        # A fork's GITHUB_TOKEN can't write comments; the numbers are still
+        # in the step above.
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
           COMMENT_ID=$(gh api \
             "repos/$GITHUB_REPOSITORY/issues/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.body | contains("<!-- staticlib-size-report -->"))] | first | .id // empty')
 
           if [ -n "$COMMENT_ID" ]; then
-            jq -n --rawfile body /tmp/comment.md '{body: $body}' | \
+            jq -n --rawfile body "$RUNNER_TEMP/comment.md" '{body: $body}' | \
               gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${COMMENT_ID}" --input -
           else
-            jq -n --rawfile body /tmp/comment.md '{body: $body}' | \
+            jq -n --rawfile body "$RUNNER_TEMP/comment.md" '{body: $body}' | \
               gh api "repos/$GITHUB_REPOSITORY/issues/${PR_NUMBER}/comments" --input -
           fi
