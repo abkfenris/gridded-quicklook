@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>GridLook icon, option C: graticule globe</title>
+  <defs>
+    <clipPath id="icon-shape"><rect x="100.0" y="100.0" width="824" height="824" rx="185.4"/></clipPath>
+    <filter id="dock-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dy="10" result="b"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+    </filter>
+    <clipPath id="globe"><circle cx="512" cy="512" r="300"/></clipPath>
+    <clipPath id="band"><rect x="512" y="362.0" width="300" height="150.0"/></clipPath>
+  </defs>
+  <g id="layer-shadow">
+    <rect x="100.0" y="100.0" width="824" height="824" rx="185.4" fill="#000" filter="url(#dock-shadow)"/>
+  </g>
+  <g id="layer-background">
+    <rect x="100.0" y="100.0" width="824" height="824" rx="185.4" fill="#0F2540"/>
+  </g>
+  <g id="layer-midground">
+    <circle cx="512" cy="512" r="300" fill="#2C6AA6"/>
+    <g clip-path="url(#globe)"><g clip-path="url(#band)">
+      <ellipse cx="512" cy="512" rx="150.0" ry="300" fill="#E89B4B"/>
+    </g></g>
+    <g clip-path="url(#globe)" fill="none" stroke="#FFFFFF" stroke-width="16" opacity="0.92">
+      <line x1="212" y1="771.8" x2="812" y2="771.8"/>
+      <line x1="212" y1="662.0" x2="812" y2="662.0"/>
+      <line x1="212" y1="512.0" x2="812" y2="512.0"/>
+      <line x1="212" y1="362.0" x2="812" y2="362.0"/>
+      <line x1="212" y1="252.2" x2="812" y2="252.2"/>
+      <ellipse cx="512" cy="512" rx="150.0" ry="300"/>
+      <ellipse cx="512" cy="512" rx="259.8" ry="300"/>
+      <line x1="512" y1="212" x2="512" y2="812"/>
+    </g>
+    <circle cx="512" cy="512" r="300" fill="none" stroke="#FFFFFF" stroke-width="24"/>
+  </g>
+</svg>
