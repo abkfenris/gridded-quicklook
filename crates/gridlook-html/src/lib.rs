@@ -135,6 +135,7 @@ fn format_badge(format: SourceFormat) -> &'static str {
         SourceFormat::ZarrV2 => "Zarr v2",
         SourceFormat::ZarrV3 => "Zarr v3",
         SourceFormat::Icechunk => "Icechunk",
+        SourceFormat::Grib => "GRIB",
     }
 }
 
@@ -278,5 +279,6 @@ mod tests {
         assert_eq!(format_badge(SourceFormat::ZarrV2), "Zarr v2");
         assert_eq!(format_badge(SourceFormat::ZarrV3), "Zarr v3");
         assert_eq!(format_badge(SourceFormat::Icechunk), "Icechunk");
+        assert_eq!(format_badge(SourceFormat::Grib), "GRIB");
     }
 }
