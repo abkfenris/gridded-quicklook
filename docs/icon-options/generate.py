@@ -154,16 +154,275 @@ def loupe(cx, cy, r, ring, handle_len, stroke=WHITE, outline=NAVY, glass=None) -
     return "".join(out)
 
 
+# --- scalar fields and contours (pure Python marching squares) ---------------
+#
+# The top face of the cube carries a "variable": a scalar field built from a
+# few anisotropic Gaussian bumps, contoured into filled bands. Computing real
+# contours (rather than drawing concentric ellipses) is what makes it read as
+# gridded data instead of a bullseye. Everything is in the top face's own
+# (u, v) coordinates in [0, 1]^2 and projected onto the isometric face at the
+# end, so the field looks like it is lying on the cube.
+
+
+def gaussian(amp, cu, cv, su, sv, theta_deg):
+    """An anisotropic Gaussian bump: amplitude, centre, sigmas, rotation."""
+    th = math.radians(theta_deg)
+    c, s = math.cos(th), math.sin(th)
+
+    def f(u, v):
+        du, dv = u - cu, v - cv
+        a = (du * c + dv * s) / su
+        b = (-du * s + dv * c) / sv
+        return amp * math.exp(-(a * a + b * b))
+
+    return f
+
+
+def window(u, v, inner=0.05, outer=0.4):
+    """1 inside the face (plus a margin), fading to 0 well outside it, so every
+    contour closes inside the padded grid and the face clip does the rest."""
+
+    def w(x):
+        d = max(-x, x - 1.0, 0.0)  # distance outside [0, 1]
+        if d <= inner:
+            return 1.0
+        if d >= outer:
+            return 0.0
+        t = (d - inner) / (outer - inner)
+        return 0.5 * (1 + math.cos(math.pi * t))
+
+    return w(u) * w(v)
+
+
+def sample(bumps, n=80, lo=-0.4, hi=1.4):
+    """Sample sum(bumps) * window on an n x n grid over [lo, hi]^2."""
+    coords = [lo + (hi - lo) * i / (n - 1) for i in range(n)]
+    grid = []
+    for v in coords:
+        row = []
+        for u in coords:
+            val = sum(b(u, v) for b in bumps) * window(u, v)
+            row.append(val)
+        grid.append(row)
+    return coords, grid
+
+
+# Marching squares. Corner bits: a=(i,j)=1, b=(i+1,j)=2, c=(i+1,j+1)=4,
+# d=(i,j+1)=8. Edges are named by the cell edge they cross: T (a-b), R (b-c),
+# B (d-c), L (a-d). Saddles (5, 10) are resolved with the cell centre value.
+_CASES = {
+    1: [("L", "T")],
+    2: [("T", "R")],
+    3: [("L", "R")],
+    4: [("R", "B")],
+    6: [("T", "B")],
+    7: [("L", "B")],
+    8: [("B", "L")],
+    9: [("T", "B")],
+    11: [("R", "B")],
+    12: [("L", "R")],
+    13: [("T", "R")],
+    14: [("L", "T")],
+}
+
+
+def contours(coords, grid, level):
+    """Closed contour polygons (lists of (u, v)) of `grid` at `level`."""
+    n = len(coords)
+
+    def edge_key(i, j, side):
+        # A shared edge gets the same key from both cells that touch it.
+        if side == "T":
+            return ("h", i, j)
+        if side == "B":
+            return ("h", i, j + 1)
+        if side == "L":
+            return ("v", i, j)
+        return ("v", i + 1, j)
+
+    def edge_point(key):
+        kind, i, j = key
+        if kind == "h":
+            v0, v1 = grid[j][i], grid[j][i + 1]
+            t = (level - v0) / (v1 - v0)
+            return (coords[i] + (coords[i + 1] - coords[i]) * t, coords[j])
+        v0, v1 = grid[j][i], grid[j + 1][i]
+        t = (level - v0) / (v1 - v0)
+        return (coords[i], coords[j] + (coords[j + 1] - coords[j]) * t)
+
+    segments = []
+    for j in range(n - 1):
+        for i in range(n - 1):
+            a, b, c, d = grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]
+            case = (a >= level) | (b >= level) << 1 | (c >= level) << 2 | (d >= level) << 3
+            if case in (0, 15):
+                continue
+            if case in (5, 10):
+                centre_high = (a + b + c + d) / 4 >= level
+                if (case == 5) == centre_high:
+                    pairs = [("T", "R"), ("B", "L")]
+                else:
+                    pairs = [("L", "T"), ("R", "B")]
+            else:
+                pairs = _CASES[case]
+            for s0, s1 in pairs:
+                segments.append((edge_key(i, j, s0), edge_key(i, j, s1)))
+
+    # Link segments into loops via their shared edge keys.
+    by_key = {}
+    for idx, (k0, k1) in enumerate(segments):
+        by_key.setdefault(k0, []).append(idx)
+        by_key.setdefault(k1, []).append(idx)
+    used = [False] * len(segments)
+    polygons = []
+    for start in range(len(segments)):
+        if used[start]:
+            continue
+        used[start] = True
+        k_first, k = segments[start]
+        loop = [k_first, k]
+        while k != k_first:
+            nxt = next((s for s in by_key[k] if not used[s]), None)
+            if nxt is None:
+                break  # open polyline (should not happen with the window)
+            used[nxt] = True
+            k0, k1 = segments[nxt]
+            k = k1 if k0 == k else k0
+            loop.append(k)
+        polygons.append([edge_point(key) for key in loop])
+    return polygons
+
+
+def project(face, u, v):
+    """Map top-face coordinates (u, v) in [0, 1]^2 onto the isometric face."""
+    n, e, sv, wv = face
+    return (
+        n[0] + u * (e[0] - n[0]) + v * (wv[0] - n[0]),
+        n[1] + u * (e[1] - n[1]) + v * (wv[1] - n[1]),
+    )
+
+
+def contour_path(face, polygons) -> str:
+    parts = []
+    for poly in polygons:
+        pts_xy = [project(face, u, v) for u, v in poly]
+        parts.append("M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts_xy) + " Z")
+    return " ".join(parts)
+
+
+def contour_field_svg(face, bumps, bands, line_color, line_width=6, line_opacity=0.45, fill=True) -> str:
+    """Filled contour bands (ascending levels painted on top of each other)
+    plus thin isolines, for the top face. `bands` is [(level, colour), ...]."""
+    coords, grid = sample(bumps)
+    out = []
+    for level, colour in bands:
+        d = contour_path(face, contours(coords, grid, level))
+        if not d:
+            continue
+        if fill:
+            out.append(f'      <path d="{d}" fill="{colour}" fill-rule="evenodd"/>\n')
+        out.append(
+            f'      <path d="{d}" fill="none" stroke="{line_color}" stroke-width="{line_width}" '
+            f'stroke-linejoin="round" opacity="{line_opacity}"/>\n'
+        )
+    return "".join(out)
+
+
+# The fields. Centres/sigmas are in face coordinates; u runs along the
+# back-right edge, v along the back-left edge, so a bump elongated along
+# (1, 1) is "vertical" on screen and along (1, -1) is "horizontal".
+FIELD_ANOMALY = {
+    "base": CREAM,
+    "bumps": [
+        gaussian(1.0, 0.40, 0.38, 0.44, 0.22, 35),
+        gaussian(0.75, 0.82, 0.12, 0.28, 0.16, -20),
+        gaussian(-1.0, 0.70, 0.80, 0.40, 0.20, 25),
+        gaussian(-0.55, 0.10, 0.88, 0.26, 0.15, 60),
+    ],
+    # diverging: cold bands are sublevel sets, so they are painted with the
+    # sign flipped (see option_a_contour), warm bands are superlevel sets
+    "warm": [(0.25, ORANGE), (0.60, ORANGE_DEEP)],
+    "cold": [(0.25, BLUE), (0.60, BLUE_DEEP)],
+}
+
+FIELD_TWIN_PEAKS = {
+    "base": BLUE_DEEP,
+    "bumps": [
+        gaussian(0.8, 0.28, 0.60, 0.46, 0.26, 40),
+        gaussian(1.0, 0.72, 0.26, 0.30, 0.18, -30),
+        gaussian(0.4, 0.58, 0.88, 0.24, 0.14, 10),
+    ],
+    "bands": [(0.16, BLUE), (0.40, SAND), (0.62, ORANGE), (0.85, ORANGE_DEEP)],
+}
+
+FIELD_EDDY = {
+    "base": BLUE_DEEP,
+    "bumps": [
+        gaussian(1.0, 0.45, 0.45, 0.58, 0.20, -40),
+        gaussian(0.6, 0.82, 0.72, 0.22, 0.14, 30),
+        gaussian(0.5, 0.14, 0.18, 0.26, 0.15, 70),
+    ],
+    "bands": [(0.22, BLUE), (0.52, ORANGE), (0.80, SAND)],
+}
+
+
 # --- option A: the concept, simplified --------------------------------------
 
 
-def option_a_cube_loupe(background: str = PALE, label: str = "A") -> str:
-    """Isometric data cube with a contour top face and a Quick Look loupe.
+def top_face_bullseye(top, k):
+    """The first draft's top face: three concentric flat bands (kept for
+    reference; it reads as a target rather than as data)."""
+    n, e, sv, wv = top
+    tcx, tcy = (n[0] + sv[0]) / 2, (n[1] + sv[1]) / 2
+    out = [f'    <polygon points="{pts(top)}" fill="{TEAL}"/>\n', '    <g clip-path="url(#top-face)">\n']
+    for dx, dy, rx, fill in ((70, 20, 250, BLUE_DEEP), (70, 20, 180, ORANGE), (70, 20, 105, SAND)):
+        out.append(f'      <ellipse cx="{tcx + dx}" cy="{tcy + dy}" rx="{rx}" ry="{rx * k:.1f}" fill="{fill}"/>\n')
+    out.append("    </g>\n")
+    return "".join(out)
 
-    The closest reading of the Gemini concept: gridded side faces, a stepped
-    colour field on top, a loupe over one corner. The play button is gone
-    (it reads as a media app) and the field is three flat bands rather than
-    a gradient so it survives 16 px.
+
+def top_face_contours(field, line_color, grid_color=None, fill=True):
+    """A contoured scalar field lying on the top face (see FIELD_*)."""
+
+    def draw(top, k):
+        out = [f'    <polygon points="{pts(top)}" fill="{field["base"]}"/>\n', '    <g clip-path="url(#top-face)">\n']
+        if "bands" in field:
+            out.append(contour_field_svg(top, field["bumps"], field["bands"], line_color, fill=fill))
+        else:
+            # diverging field: warm bands are superlevel sets of f, cold bands
+            # are superlevel sets of -f
+            neg = [lambda u, v, b=b: -b(u, v) for b in field["bumps"]]
+            out.append(contour_field_svg(top, field["bumps"], field["warm"], line_color, fill=fill))
+            out.append(contour_field_svg(top, neg, field["cold"], line_color, fill=fill))
+        if grid_color:
+            out.append(polyline_group(face_grid_lines(top, 3), grid_color, 10, 0.35))
+        out.append("    </g>\n")
+        return "".join(out)
+
+    return draw
+
+
+def top_face_isolines(top, k):
+    """Topographic look: a cream face with unfilled isolines only, orange for
+    the warm anomaly and blue for the cold one."""
+    f = FIELD_ANOMALY
+    out = [f'    <polygon points="{pts(top)}" fill="{CREAM}"/>\n', '    <g clip-path="url(#top-face)">\n']
+    neg = [lambda u, v, b=b: -b(u, v) for b in f["bumps"]]
+    warm = [(lvl, ORANGE_DEEP) for lvl in (0.2, 0.45, 0.7)]
+    cold = [(lvl, BLUE_DEEP) for lvl in (0.2, 0.45, 0.7)]
+    out.append(contour_field_svg(top, f["bumps"], warm, ORANGE_DEEP, line_width=12, line_opacity=1.0, fill=False))
+    out.append(contour_field_svg(top, neg, cold, BLUE_DEEP, line_width=12, line_opacity=1.0, fill=False))
+    out.append("    </g>\n")
+    return "".join(out)
+
+
+def option_a_cube_loupe(background: str = PALE, label: str = "A", top_face=top_face_bullseye) -> str:
+    """Isometric data cube with a field on the top face and a Quick Look loupe.
+
+    The closest reading of the Gemini concept: gridded side faces, a colour
+    field on top, a loupe over one corner. The play button is gone (it reads
+    as a media app). `top_face` draws the field; the contour variants are the
+    ones that read as data.
     """
     s = 330
     cx, cy = 500, 560
@@ -179,16 +438,9 @@ def option_a_cube_loupe(background: str = PALE, label: str = "A") -> str:
     # faces
     out.append(f'    <polygon points="{pts(left)}" fill="{BLUE}"/>\n')
     out.append(f'    <polygon points="{pts(right)}" fill="{ORANGE}"/>\n')
-    out.append(f'    <polygon points="{pts(top)}" fill="{TEAL}"/>\n')
-    # Stepped contour field on the top face. A circle drawn on the cube's top
-    # projects to an axis-aligned ellipse with ry/rx = tan 30deg, so nested
-    # ellipses with that ratio look like contour rings lying *on* the face.
-    k = math.tan(math.radians(30))
-    tcx, tcy = (n[0] + sv[0]) / 2, (n[1] + sv[1]) / 2
-    out.append('    <g clip-path="url(#top-face)">\n')
-    for dx, dy, rx, fill in ((70, 20, 250, BLUE_DEEP), (70, 20, 180, ORANGE), (70, 20, 105, SAND)):
-        out.append(f'      <ellipse cx="{tcx + dx}" cy="{tcy + dy}" rx="{rx}" ry="{rx * k:.1f}" fill="{fill}"/>\n')
-    out.append("    </g>\n")
+    # A circle drawn on the cube's top projects to an axis-aligned ellipse
+    # with ry/rx = tan 30deg; the top-face drawers get that ratio.
+    out.append(top_face(top, math.tan(math.radians(30))))
     # grid lines on the two side faces only (the top face carries the field)
     out.append(polyline_group(face_grid_lines(left, 3), outline_col, 10, 0.5))
     out.append(polyline_group(face_grid_lines(right, 3), outline_col, 10, 0.5))
@@ -408,6 +660,10 @@ def option_e_slices() -> str:
 OPTIONS = {
     "a-cube-loupe": option_a_cube_loupe,
     "a2-cube-loupe-dark": lambda: option_a_cube_loupe(background=INK, label="A2"),
+    "a3-anomaly": lambda: option_a_cube_loupe(label="A3", top_face=top_face_contours(FIELD_ANOMALY, NAVY)),
+    "a4-twin-peaks": lambda: option_a_cube_loupe(label="A4", top_face=top_face_contours(FIELD_TWIN_PEAKS, INK)),
+    "a5-gridded-field": lambda: option_a_cube_loupe(label="A5", top_face=top_face_contours(FIELD_EDDY, INK, grid_color=INK)),
+    "a6-isolines": lambda: option_a_cube_loupe(label="A6", top_face=top_face_isolines),
     "b-tiles-loupe": option_b_tiles_loupe,
     "c-globe": option_c_globe,
     "d-bold-cube": option_d_bold_cube,
