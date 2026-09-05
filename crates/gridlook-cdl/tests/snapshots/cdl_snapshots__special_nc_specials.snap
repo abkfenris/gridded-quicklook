@@ -14,9 +14,9 @@ variables:
 		temperature:scale_factor = 0.01f ;
 		temperature:_Storage = "chunked" ;
 		temperature:_ChunkSizes = 1, 3 ;
-		temperature:_DeflateLevel = 4 ;
-		temperature:_Shuffle = "true" ;
 		temperature:_Fletcher32 = "true" ;
+		temperature:_Shuffle = "true" ;
+		temperature:_DeflateLevel = 4 ;
 		temperature:_Endianness = "little" ;
 	short counts(x) ;
 		counts:valid_range = -50s, 50s ;
@@ -44,8 +44,8 @@ variables:
 // global attributes:
 		:title = "gridlook special fixture" ;
 		:history = "created by generate.py\nsecond line" ;
-		:_Format = "netCDF-4" ;
 		:_NCProperties = "[nc-properties]" ;
 		:_SuperblockVersion = 2 ;
 		:_IsNetcdf4 = 1 ;
+		:_Format = "netCDF-4" ;
 }

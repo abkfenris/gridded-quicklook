@@ -11,7 +11,7 @@
 //! history.
 
 use gridlook_meta::{
-    AttrValue, DatasetSummary, Endianness, SourceFormat, StorageLayout, VarSummary,
+    AttrValue, CodecInfo, DatasetSummary, Endianness, SourceFormat, StorageLayout, VarSummary,
 };
 
 use crate::types::fixed_string_length;
@@ -55,23 +55,16 @@ pub fn var_specials(var: &VarSummary, format: SourceFormat) -> Vec<(String, Attr
             push("_ChunkSizes", int_list(chunks));
         }
     }
-    if let Some(level) = storage.deflate_level {
-        push("_DeflateLevel", AttrValue::Int32(level.into()));
+    // ncdump's `pr_att_specials` order: checksum, shuffle, deflate, filters,
+    // codecs, endianness, no-fill.
+    if storage.fletcher32 {
+        push("_Fletcher32", text("true"));
     }
     if storage.shuffle {
         push("_Shuffle", text("true"));
     }
-    if storage.fletcher32 {
-        push("_Fletcher32", text("true"));
-    }
-    if let Some(endianness) = storage.endianness {
-        push(
-            "_Endianness",
-            text(match endianness {
-                Endianness::Little => "little",
-                Endianness::Big => "big",
-            }),
-        );
+    if let Some(level) = storage.deflate_level {
+        push("_DeflateLevel", AttrValue::Int32(level.into()));
     }
     if !storage.filters.is_empty() {
         // ncdump: `"id,p1,p2|id2,..."`.
@@ -88,22 +81,25 @@ pub fn var_specials(var: &VarSummary, format: SourceFormat) -> Vec<(String, Attr
             .join("|");
         push("_Filter", text(&spec));
     }
+    // Zarr codec chain as one JSON string, the shape ncdump's NCZarr uses
+    // for its own `_Codecs` (which ncgen accepts only as a single string).
+    if !storage.codecs.is_empty() {
+        push("_Codecs", text(&codecs_json(&storage.codecs, format)));
+    }
+    if let Some(endianness) = storage.endianness {
+        push(
+            "_Endianness",
+            text(match endianness {
+                Endianness::Little => "little",
+                Endianness::Big => "big",
+            }),
+        );
+    }
     if storage.no_fill {
         push("_NoFill", text("true"));
     }
 
-    // Zarr / Icechunk extras.
-    if !storage.codecs.is_empty() {
-        let codecs = storage
-            .codecs
-            .iter()
-            .map(|c| match &c.configuration {
-                Some(config) => format!("{}({config})", c.name),
-                None => c.name.clone(),
-            })
-            .collect();
-        push("_Codecs", AttrValue::TextList(codecs));
-    }
+    // Zarr / Icechunk extras with no ncdump counterpart.
     if let Some(fill) = &storage.fill_value {
         let has_user_fill = var.attrs.iter().any(|(k, _)| k == "_FillValue");
         if !has_user_fill {
@@ -126,13 +122,40 @@ pub fn var_specials(var: &VarSummary, format: SourceFormat) -> Vec<(String, Attr
     out
 }
 
-/// Special global attributes: the format kind, netCDF-4 provenance, and
-/// Icechunk version information.
+/// The codec chain as the JSON array the store itself holds: v3-style
+/// `{"name": ..., "configuration": {...}}` objects, or for Zarr v2 the
+/// numcodecs form `{"id": ..., <parameters>}`.
+fn codecs_json(codecs: &[CodecInfo], format: SourceFormat) -> String {
+    let entries: Vec<String> = codecs
+        .iter()
+        .map(|codec| {
+            let name = serde_json::to_string(&codec.name).unwrap_or_default();
+            match (format, &codec.configuration) {
+                (SourceFormat::ZarrV2, Some(serde_json::Value::Object(params)))
+                    if !params.is_empty() =>
+                {
+                    let params = serde_json::to_string(params).unwrap_or_default();
+                    // Splice the parameters in after the id: `{"id":..,` + `k:v,...}`.
+                    format!("{{\"id\":{name},{}", &params[1..])
+                }
+                (SourceFormat::ZarrV2, _) => format!("{{\"id\":{name}}}"),
+                (_, Some(config)) => format!(
+                    "{{\"name\":{name},\"configuration\":{}}}",
+                    serde_json::to_string(config).unwrap_or_default()
+                ),
+                (_, None) => format!("{{\"name\":{name}}}"),
+            }
+        })
+        .collect();
+    format!("[{}]", entries.join(","))
+}
+
+/// Special global attributes: netCDF-4 provenance, Icechunk version
+/// information, and last (as ncdump prints it) the format kind.
 pub fn global_specials(summary: &DatasetSummary) -> Vec<(String, AttrValue)> {
     let mut out: Vec<(String, AttrValue)> = Vec::new();
     let mut push = |name: &str, value: AttrValue| out.push((name.to_owned(), value));
 
-    push("_Format", text(&crate::kind_string(summary)));
     if let Some(info) = &summary.file_info {
         if let Some(props) = &info.nc_properties {
             push("_NCProperties", text(props));
@@ -156,6 +179,7 @@ pub fn global_specials(summary: &DatasetSummary) -> Vec<(String, AttrValue)> {
             }
         }
     }
+    push("_Format", text(&crate::kind_string(summary)));
     out
 }
 
@@ -203,16 +227,16 @@ mod tests {
             vec![
                 "_Storage",
                 "_ChunkSizes",
-                "_DeflateLevel",
-                "_Shuffle",
                 "_Fletcher32",
-                "_Endianness",
+                "_Shuffle",
+                "_DeflateLevel",
                 "_Filter",
+                "_Endianness",
                 "_NoFill"
             ]
         );
         assert_eq!(specials[1].1, AttrValue::Int32List(vec![2]));
-        assert_eq!(specials[6].1, AttrValue::Text("32015,3".into()));
+        assert_eq!(specials[5].1, AttrValue::Text("32015,3".into()));
     }
 
     #[test]
@@ -254,14 +278,42 @@ mod tests {
                 "_StringLength"
             ]
         );
+        // `_Endianness` sits between `_Codecs` and `_NoFill`, as in ncdump.
+        v.storage.as_mut().unwrap().endianness = Some(Endianness::Big);
+        assert_eq!(
+            names(&var_specials(&v, SourceFormat::ZarrV3))[2..4],
+            ["_Codecs", "_Endianness"]
+        );
         assert_eq!(
             specials[2].1,
-            AttrValue::TextList(vec!["bytes({\"endian\":\"little\"})".into()])
+            AttrValue::Text(r#"[{"name":"bytes","configuration":{"endian":"little"}}]"#.into())
         );
 
         // A user `_FillValue` attribute wins over the metadata one.
         v.attrs.push(("_FillValue".into(), AttrValue::Float(1.0)));
         assert!(!names(&var_specials(&v, SourceFormat::ZarrV3)).contains(&"_FillValue"));
+    }
+
+    #[test]
+    fn v2_codecs_use_the_numcodecs_shape() {
+        let codecs = vec![
+            CodecInfo {
+                name: "delta".into(),
+                configuration: Some(serde_json::json!({"dtype": "<i2"})),
+            },
+            CodecInfo {
+                name: "zlib".into(),
+                configuration: None,
+            },
+        ];
+        assert_eq!(
+            codecs_json(&codecs, SourceFormat::ZarrV2),
+            r#"[{"id":"delta","dtype":"<i2"},{"id":"zlib"}]"#
+        );
+        assert_eq!(
+            codecs_json(&codecs[1..], SourceFormat::Icechunk),
+            r#"[{"name":"zlib"}]"#
+        );
     }
 
     #[test]

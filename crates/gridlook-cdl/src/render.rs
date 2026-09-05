@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 
 use gridlook_meta::{AttrValue, DatasetSummary, GroupSummary, SourceFormat, VarSummary};
 
-use crate::literal::{NumberPolicy, attr_literal, cdl_name};
+use crate::literal::{NumberPolicy, attr_literal, attr_type_prefix, cdl_name};
 use crate::specials::{global_specials, var_specials};
 use crate::types::cdl_type_name;
 use crate::{CdlError, CdlOptions};
@@ -185,7 +185,9 @@ fn write_group_attributes(
     if ctx.opts.specials && depth == 0 {
         attrs.extend(global_specials(ctx.summary));
     }
-    if attrs.is_empty() {
+    // ncdump prints the heading for every group under `-s`, even one with
+    // no attributes at all.
+    if attrs.is_empty() && !ctx.opts.specials {
         return;
     }
     let heading = if depth == 0 {
@@ -207,9 +209,10 @@ fn write_attribute(
     attr_name: &str,
     value: &AttrValue,
 ) {
+    let type_prefix = attr_type_prefix(value).map_or(String::new(), |t| format!("{t} "));
     let _ = writeln!(
         out,
-        "{indent}\t\t{owner}:{} = {} ;",
+        "{indent}\t\t{type_prefix}{owner}:{} = {} ;",
         cdl_name(attr_name),
         attr_literal(value, ctx.policy)
     );
@@ -275,6 +278,8 @@ mod tests {
                         ("_FillValue", AttrValue::Float32(f32::NAN)),
                         ("valid_range", AttrValue::Int16List(vec![-10, 40])),
                         ("time", AttrValue::Int(5)),
+                        ("comment", AttrValue::Str("vlen".into())),
+                        ("tags", AttrValue::TextList(vec!["a".into(), "b".into()])),
                     ],
                 ),
             ],
@@ -293,6 +298,8 @@ variables:
 \t\ttemp:_FillValue = NaNf ;
 \t\ttemp:valid_range = -10s, 40s ;
 \t\ttemp:time = 5LL ;
+\t\tstring temp:comment = \"vlen\" ;
+\t\tstring temp:tags = \"a\", \"b\" ;
 
 // global attributes:
 \t\t:title = \"t\" ;
@@ -419,9 +426,55 @@ group: group_a {
         let mut o = opts("s");
         o.specials = true;
         let text = render(&ds, &o).unwrap();
-        assert!(text.contains("\n// global attributes:\n\t\t:_Format = \"netCDF-4\" ;\n"));
-        assert!(text.contains("\t\t:_NCProperties = \"version=2\" ;\n"));
-        assert!(text.contains("\t\t:_SuperblockVersion = 2 ;\n"));
-        assert!(text.contains("\t\t:_IsNetcdf4 = 1 ;\n"));
+        // ncdump's order: the hidden netCDF-4 attributes, then `_Format`.
+        assert!(text.contains(
+            "\n// global attributes:\n\
+             \t\t:_NCProperties = \"version=2\" ;\n\
+             \t\t:_SuperblockVersion = 2 ;\n\
+             \t\t:_IsNetcdf4 = 1 ;\n\
+             \t\t:_Format = \"netCDF-4\" ;\n}\n"
+        ));
+    }
+
+    /// Under `-s` ncdump prints the attributes heading for every group, even
+    /// one without attributes (the root always has `_Format`).
+    #[test]
+    fn specials_print_the_attribute_heading_for_empty_groups() {
+        let child = GroupSummary::from_parts(
+            "g".into(),
+            None,
+            Vec::new(),
+            vec![var("v", "float32", &["x"], Vec::new())],
+            Vec::new(),
+        );
+        let ds = dataset(GroupSummary::from_parts(
+            String::new(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            vec![child],
+        ));
+        let plain = render(&ds, &opts("t")).unwrap();
+        assert!(!plain.contains("// group attributes:"), "{plain}");
+
+        let mut o = opts("t");
+        o.specials = true;
+        let expected = "\
+netcdf t {
+
+// global attributes:
+\t\t:_Format = \"netCDF\" ;
+
+group: g {
+  dimensions:
+  \tx = 3 ;
+  variables:
+  \tfloat v(x) ;
+
+  // group attributes:
+  } // group g
+}
+";
+        assert_eq!(render(&ds, &o).unwrap(), expected);
     }
 }

@@ -14,8 +14,8 @@ variables:
 		salinity:units = "psu" ;
 		salinity:_Storage = "chunked" ;
 		salinity:_ChunkSizes = 4, 3, 2 ;
+		salinity:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
 		salinity:_Endianness = "little" ;
-		salinity:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
 		salinity:_ChunkKeyEncoding = "default/" ;
 	float temperature(time, x, y) ;
 		temperature:_FillValue = NaN ;
@@ -23,16 +23,16 @@ variables:
 		temperature:units = "degC" ;
 		temperature:_Storage = "chunked" ;
 		temperature:_ChunkSizes = 4, 3, 2 ;
+		temperature:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
 		temperature:_Endianness = "little" ;
-		temperature:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
 		temperature:_ChunkKeyEncoding = "default/" ;
 	int64 time(time) ;
 		time:calendar = "proleptic_gregorian" ;
 		time:units = "days since 2024-01-01 00:00:00" ;
 		time:_Storage = "chunked" ;
 		time:_ChunkSizes = 4 ;
+		time:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
 		time:_Endianness = "little" ;
-		time:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
 		time:_FillValue = 0 ;
 		time:_ChunkKeyEncoding = "default/" ;
 	float x(x) ;
@@ -41,8 +41,8 @@ variables:
 		x:units = "km" ;
 		x:_Storage = "chunked" ;
 		x:_ChunkSizes = 3 ;
+		x:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
 		x:_Endianness = "little" ;
-		x:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
 		x:_ChunkKeyEncoding = "default/" ;
 
 // global attributes:
@@ -63,8 +63,8 @@ group: group_a {
   		temperature:units = "degC" ;
   		temperature:_Storage = "chunked" ;
   		temperature:_ChunkSizes = 4, 3, 2 ;
+  		temperature:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
   		temperature:_Endianness = "little" ;
-  		temperature:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
   		temperature:_ChunkKeyEncoding = "default/" ;
 
   // group attributes:
@@ -84,8 +84,8 @@ group: group_a {
     		temperature:units = "degC" ;
     		temperature:_Storage = "chunked" ;
     		temperature:_ChunkSizes = 4, 3, 2 ;
+    		temperature:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
     		temperature:_Endianness = "little" ;
-    		temperature:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
     		temperature:_ChunkKeyEncoding = "default/" ;
 
     // group attributes:
@@ -107,8 +107,8 @@ group: group_b {
   		salinity:units = "psu" ;
   		salinity:_Storage = "chunked" ;
   		salinity:_ChunkSizes = 4, 3, 2 ;
+  		salinity:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"little\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":0,\"checksum\":false}}]" ;
   		salinity:_Endianness = "little" ;
-  		salinity:_Codecs = "bytes({\"endian\":\"little\"})", "zstd({\"level\":0,\"checksum\":false})" ;
   		salinity:_ChunkKeyEncoding = "default/" ;
 
   // group attributes:

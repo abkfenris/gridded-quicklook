@@ -11,8 +11,8 @@ variables:
 		pressure:units = "hPa" ;
 		pressure:_Storage = "chunked" ;
 		pressure:_ChunkSizes = 3, 1 ;
+		pressure:_Codecs = "[{\"name\":\"bytes\",\"configuration\":{\"endian\":\"big\"}},{\"name\":\"zstd\",\"configuration\":{\"level\":3,\"checksum\":false}}]" ;
 		pressure:_Endianness = "big" ;
-		pressure:_Codecs = "bytes({\"endian\":\"big\"})", "zstd({\"level\":3,\"checksum\":false})" ;
 		pressure:_FillValue = NaNf ;
 		pressure:_ChunkKeyEncoding = "default/" ;
 

@@ -314,7 +314,14 @@ pub enum AttrValue {
     Float(f64),
     IntList(Vec<i64>),
     FloatList(Vec<f64>),
+    /// Several strings: netCDF `string` (NC_STRING) arrays, JSON string
+    /// arrays. CDL can only spell a multi-valued text attribute as type
+    /// `string`, so renderers give these a `string` type prefix.
     TextList(Vec<String>),
+    /// A single netCDF `string` (NC_STRING, variable-length) attribute.
+    /// Same content as [`AttrValue::Text`] (a `char` array), but ncdump
+    /// prints it with a `string` type prefix, so the distinction is kept.
+    Str(String),
     Int8(i8),
     UInt8(u8),
     Int16(i16),
@@ -364,7 +371,7 @@ impl AttrValue {
     /// The numeric type, or `None` for text values.
     pub fn num_kind(&self) -> Option<NumKind> {
         Some(match self {
-            AttrValue::Text(_) | AttrValue::TextList(_) => return None,
+            AttrValue::Text(_) | AttrValue::Str(_) | AttrValue::TextList(_) => return None,
             AttrValue::Int(_) | AttrValue::IntList(_) => NumKind::I64,
             AttrValue::Float(_) | AttrValue::FloatList(_) => NumKind::F64,
             AttrValue::Int8(_) | AttrValue::Int8List(_) => NumKind::I8,
@@ -410,7 +417,7 @@ impl AttrValue {
     /// scalar variants).
     pub fn scalars(&self) -> Vec<AttrScalar<'_>> {
         match self {
-            AttrValue::Text(s) => vec![AttrScalar::Text(s)],
+            AttrValue::Text(s) | AttrValue::Str(s) => vec![AttrScalar::Text(s)],
             AttrValue::TextList(v) => v.iter().map(|s| AttrScalar::Text(s)).collect(),
             AttrValue::Int(i) => vec![AttrScalar::Int(*i)],
             AttrValue::IntList(v) => v.iter().map(|&i| AttrScalar::Int(i)).collect(),

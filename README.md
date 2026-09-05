@@ -138,10 +138,15 @@ Snapshot tests use [insta](https://insta.rs); run `cargo insta review` after
 an intentional change. The Icechunk snapshots redact snapshot ids and
 timestamps, so regenerating fixtures does not churn them.
 
-If `ncdump` is on your PATH when fixtures are generated (`brew install
-netcdf`), reference `.cdl` headers are written to `fixtures/reference/` so
-`gridlook dump` output can be diffed against the real thing, e.g.
-`diff fixtures/reference/simple.s.cdl <(mise run dump -- -hs fixtures/data/simple.nc)`.
+`gridlook dump` is checked against the reference implementation. If `ncdump`
+is on your PATH when fixtures are generated (`brew install netcdf`,
+`apt install netcdf-bin`), `ncdump -h`/`-hs` headers for every NetCDF and
+HDF5 fixture are written to `fixtures/reference/`, and
+`crates/gridlook-cli/tests/ncdump_reference.rs` requires `gridlook dump` to
+match them byte for byte. The same test feeds every header, Zarr and
+Icechunk included, through `ncgen` to prove it is valid CDL. Without the
+tools those tests skip; CI installs them and sets
+`GRIDLOOK_REQUIRE_NCDUMP=1` so a skip there is a failure.
 
 A `.devcontainer/` is provided for Linux work on the Rust crates. A Mac with
 Xcode is needed to build or run the macOS app extension.

@@ -23,16 +23,30 @@ pub enum NumberPolicy {
 }
 
 /// Renders an attribute value as a CDL literal list (`1.5f, 2.f`, `"text"`,
-/// `1b, 2b`). An empty list renders as an empty string, which CDL accepts
-/// (`name = ;`).
+/// `1b, 2b`). A zero-length attribute renders as `""`, as ncdump prints it.
 pub fn attr_literal(value: &AttrValue, policy: NumberPolicy) -> String {
     let kind = value.num_kind();
-    value
-        .scalars()
+    let scalars = value.scalars();
+    if scalars.is_empty() {
+        return "\"\"".to_owned();
+    }
+    scalars
         .into_iter()
         .map(|scalar| scalar_literal(scalar, kind, policy))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// The CDL type prefix an attribute declaration needs, if any. ncdump
+/// prefixes `string`-typed (NC_STRING) attributes with their type; every
+/// other atomic type is implied by the literal suffix. Multi-valued text
+/// attributes can only be `string` in CDL (a `char` attribute is one string),
+/// so lists of text always carry the prefix.
+pub fn attr_type_prefix(value: &AttrValue) -> Option<&'static str> {
+    match value {
+        AttrValue::Str(_) | AttrValue::TextList(_) => Some("string"),
+        _ => None,
+    }
 }
 
 fn scalar_literal(scalar: AttrScalar<'_>, kind: Option<NumKind>, policy: NumberPolicy) -> String {
@@ -257,8 +271,26 @@ mod tests {
         );
         assert_eq!(
             attr_literal(&AttrValue::IntList(Vec::new()), NumberPolicy::Json),
-            ""
+            "\"\""
         );
+        assert_eq!(
+            attr_literal(&AttrValue::Str("s".into()), NumberPolicy::NetCdf),
+            "\"s\""
+        );
+    }
+
+    #[test]
+    fn only_string_typed_attributes_get_a_type_prefix() {
+        assert_eq!(
+            attr_type_prefix(&AttrValue::Str("s".into())),
+            Some("string")
+        );
+        assert_eq!(
+            attr_type_prefix(&AttrValue::TextList(vec!["a".into()])),
+            Some("string")
+        );
+        assert_eq!(attr_type_prefix(&AttrValue::Text("c".into())), None);
+        assert_eq!(attr_type_prefix(&AttrValue::IntList(vec![1, 2])), None);
     }
 
     #[test]

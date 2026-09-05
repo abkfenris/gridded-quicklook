@@ -29,7 +29,20 @@ jobs:
       - name: mise run lint
         run: mise run lint
 
+      # ncdump/ncgen are the reference implementation the `gridlook dump`
+      # tests compare against (crates/gridlook-cli/tests/ncdump_reference.rs).
+      # The fixture generator writes ncdump's headers when it finds the
+      # binary, so it must be installed before `mise run test` regenerates
+      # fixtures.
+      - name: Install ncdump and ncgen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends netcdf-bin
+
       - name: mise run test
+        env:
+          # Fail, rather than skip, when the reference comparison can't run.
+          GRIDLOOK_REQUIRE_NCDUMP: "1"
         run: mise run test
 
   macos:

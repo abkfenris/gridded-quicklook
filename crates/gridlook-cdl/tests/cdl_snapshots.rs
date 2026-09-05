@@ -126,13 +126,16 @@ fn special_nc_covers_ncdump_vocabulary() {
 fn zarr_codec_fixtures_report_storage() {
     let v3 = header_with_specials("codecs_v3.zarr");
     assert!(v3.contains("pressure:_Endianness = \"big\" ;\n"), "{v3}");
-    assert!(v3.contains("\"zstd({\\\"level\\\":3"), "{v3}");
+    assert!(
+        v3.contains("{\\\"name\\\":\\\"zstd\\\",\\\"configuration\\\":{\\\"level\\\":3"),
+        "{v3}"
+    );
     assert!(v3.contains("pressure:_FillValue = NaNf ;\n"), "{v3}");
 
     let v2 = header_with_specials("filters_v2.zarr");
     assert!(v2.contains("counts:_Order = \"F\" ;\n"), "{v2}");
     assert!(v2.contains("counts:_FillValue = -1 ;\n"), "{v2}");
-    assert!(v2.contains("\"delta("), "{v2}");
+    assert!(v2.contains("{\\\"id\\\":\\\"delta\\\","), "{v2}");
     assert!(v2.contains("\tchar labels(x) ;\n"), "{v2}");
     assert!(v2.contains("labels:_StringLength = 6 ;\n"), "{v2}");
 }
@@ -167,9 +170,9 @@ fn specials_report_format_and_chunking() {
 
     let zarr = header_with_specials("simple_v3.zarr");
     assert!(zarr.contains("\t\t:_Format = \"Zarr v3\" ;\n"));
-    assert!(
-        zarr.contains("temperature:_Codecs = \"bytes({\\\"endian\\\":\\\"little\\\"})\", \"zstd(")
-    );
+    assert!(zarr.contains(
+        "temperature:_Codecs = \"[{\\\"name\\\":\\\"bytes\\\",\\\"configuration\\\":{\\\"endian\\\":\\\"little\\\"}},{\\\"name\\\":\\\"zstd\\\","
+    ));
 
     let icechunk = header_with_specials("icechunk_repo.icechunk");
     assert!(icechunk.contains("\t\t:_Format = \"Icechunk\" ;\n"));

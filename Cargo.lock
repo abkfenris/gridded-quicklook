@@ -943,6 +943,8 @@ dependencies = [
  "gridlook-cdl",
  "gridlook-meta",
  "predicates",
+ "similar",
+ "tempfile",
 ]
 
 [[package]]

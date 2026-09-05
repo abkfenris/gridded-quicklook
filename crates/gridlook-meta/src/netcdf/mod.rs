@@ -265,7 +265,12 @@ fn attr_value_from(value: AttributeValue) -> AttrValue {
         AttributeValue::Floats(v) => AttrValue::Float32List(v),
         AttributeValue::Double(v) => AttrValue::Float(v),
         AttributeValue::Doubles(v) => AttrValue::FloatList(v),
+        // The netcdf crate reads an NC_CHAR attribute as one `Str` and an
+        // NC_STRING attribute (any length) as `Strs`. Keep the `string` type
+        // visible: a one-element NC_STRING is a scalar `string` attribute,
+        // the way netCDF4-python and ncdump treat it.
         AttributeValue::Str(v) => AttrValue::Text(v),
+        AttributeValue::Strs(mut v) if v.len() == 1 => AttrValue::Str(v.remove(0)),
         AttributeValue::Strs(v) => AttrValue::TextList(v),
     }
 }

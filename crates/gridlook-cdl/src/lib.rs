@@ -17,7 +17,9 @@ mod types;
 
 use gridlook_meta::{DatasetSummary, SourceFormat};
 
-pub use literal::{NumberPolicy, attr_literal, cdl_name, cdl_string, float_literal};
+pub use literal::{
+    NumberPolicy, attr_literal, attr_type_prefix, cdl_name, cdl_string, float_literal,
+};
 pub use specials::{global_specials, var_specials};
 pub use types::cdl_type_name;
 

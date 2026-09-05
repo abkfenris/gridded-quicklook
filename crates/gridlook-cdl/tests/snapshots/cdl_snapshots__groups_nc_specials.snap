@@ -37,10 +37,10 @@ variables:
 		:title = "gridlook simple fixture" ;
 		:institution = "NERACOOS" ;
 		:conventions = "CF-1.8" ;
-		:_Format = "netCDF-4" ;
 		:_NCProperties = "[nc-properties]" ;
 		:_SuperblockVersion = 2 ;
 		:_IsNetcdf4 = 1 ;
+		:_Format = "netCDF-4" ;
 
 group: group_a {
   variables:

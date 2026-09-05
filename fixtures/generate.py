@@ -14,8 +14,10 @@ under 400 KB by using tiny dimensions (4x3x2), float32 data, fixed random
 seeds, and only the light compression the ``-s`` fixtures need.
 
 If an ``ncdump`` binary is on PATH, reference ``.cdl`` headers are written
-to ``fixtures/reference/`` for every NetCDF fixture so ``gridlook dump``
-output can be diffed against the real thing; otherwise that step is skipped.
+to ``fixtures/reference/`` for every NetCDF/HDF5 fixture; the CLI's tests
+then require ``gridlook dump`` to match them exactly. Otherwise that step
+is skipped (and those tests skip too, unless ``GRIDLOOK_REQUIRE_NCDUMP`` is
+set, as it is in CI).
 
 Run with:
 
@@ -281,19 +283,26 @@ def write_zarr_codec_fixtures() -> None:
 
 
 def write_reference_cdl() -> None:
-    """``ncdump -h`` / ``-hs`` headers for every NetCDF fixture, when an
-    ``ncdump`` binary is available (e.g. ``brew install netcdf``), so the
-    CLI's output can be diffed against the reference implementation."""
+    """``ncdump -h`` / ``-hs`` headers for every NetCDF and HDF5 fixture, when
+    an ``ncdump`` binary is available (``apt install netcdf-bin``,
+    ``brew install netcdf``). ``crates/gridlook-cli/tests/ncdump_reference.rs``
+    requires ``gridlook dump`` to reproduce them byte for byte.
+
+    Named ``<fixture file name>.cdl`` and ``<fixture file name>.s.cdl``
+    (``simple.nc.cdl``, ``plain.h5.s.cdl``) so the test can find the fixture
+    each reference belongs to."""
     ncdump = shutil.which("ncdump")
     if ncdump is None:
         print("ncdump not found on PATH; skipping reference CDL")
         return
-    for nc_file in sorted(DATA_DIR.glob("*.nc")):
+    fixtures = sorted(p for p in DATA_DIR.iterdir() if p.suffix in {".nc", ".h5"})
+    for fixture in fixtures:
         for flags, suffix in (("-h", ".cdl"), ("-hs", ".s.cdl")):
             result = subprocess.run(
-                [ncdump, flags, str(nc_file)], check=True, capture_output=True, text=True
+                [ncdump, flags, str(fixture)], check=True, capture_output=True, text=True
             )
-            (REFERENCE_DIR / f"{nc_file.stem}{suffix}").write_text(result.stdout)
+            (REFERENCE_DIR / f"{fixture.name}{suffix}").write_text(result.stdout)
+    print(f"Wrote ncdump reference CDL for {len(fixtures)} fixtures")
 
 
 def write_icechunk_fixture(ds: xr.Dataset) -> None:

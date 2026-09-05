@@ -13,8 +13,8 @@ variables:
 		salinity:units = "psu" ;
 		salinity:_Storage = "chunked" ;
 		salinity:_ChunkSizes = 4, 3, 2 ;
+		salinity:_Codecs = "[{\"id\":\"blosc\",\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0}]" ;
 		salinity:_Endianness = "little" ;
-		salinity:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
 		salinity:_FillValue = NaNf ;
 		salinity:_Order = "C" ;
 		salinity:_ChunkKeyEncoding = "v2." ;
@@ -23,8 +23,8 @@ variables:
 		temperature:units = "degC" ;
 		temperature:_Storage = "chunked" ;
 		temperature:_ChunkSizes = 4, 3, 2 ;
+		temperature:_Codecs = "[{\"id\":\"blosc\",\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0}]" ;
 		temperature:_Endianness = "little" ;
-		temperature:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
 		temperature:_FillValue = NaNf ;
 		temperature:_Order = "C" ;
 		temperature:_ChunkKeyEncoding = "v2." ;
@@ -33,8 +33,8 @@ variables:
 		time:units = "days since 2024-01-01 00:00:00" ;
 		time:_Storage = "chunked" ;
 		time:_ChunkSizes = 4 ;
+		time:_Codecs = "[{\"id\":\"blosc\",\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0}]" ;
 		time:_Endianness = "little" ;
-		time:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
 		time:_Order = "C" ;
 		time:_ChunkKeyEncoding = "v2." ;
 	float x(x) ;
@@ -42,8 +42,8 @@ variables:
 		x:units = "km" ;
 		x:_Storage = "chunked" ;
 		x:_ChunkSizes = 3 ;
+		x:_Codecs = "[{\"id\":\"blosc\",\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0}]" ;
 		x:_Endianness = "little" ;
-		x:_Codecs = "blosc({\"cname\":\"lz4\",\"clevel\":5,\"shuffle\":1,\"blocksize\":0})" ;
 		x:_FillValue = NaNf ;
 		x:_Order = "C" ;
 		x:_ChunkKeyEncoding = "v2." ;
