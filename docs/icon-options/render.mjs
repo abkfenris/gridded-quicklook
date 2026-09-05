@@ -50,7 +50,7 @@ for (const file of svgs) {
 
 // Comparison sheet: one row per option, on a light and a dark ground, at the
 // sizes macOS actually shows an app icon (Dock 128, Finder 64/32, sidebar 16).
-const sheetSizes = [256, 128, 64, 32, 16];
+const sheetSizes = [128, 64, 32, 16];
 const rows = svgs
   .map((file) => {
     const name = basename(file, ".svg");

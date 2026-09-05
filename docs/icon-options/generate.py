@@ -345,12 +345,27 @@ FIELD_ANOMALY = {
     "cold": [(0.25, BLUE), (0.60, BLUE_DEEP)],
 }
 
+# The orange face hangs from the top face's u = 1 edge and the blue face from
+# its v = 1 edge, so warm peaks sit at high u (toward the orange face) and
+# the field cools toward the back-left corner above the blue face.
 FIELD_TWIN_PEAKS = {
     "base": BLUE_DEEP,
     "bumps": [
-        gaussian(0.8, 0.28, 0.60, 0.46, 0.26, 40),
-        gaussian(1.0, 0.72, 0.26, 0.30, 0.18, -30),
-        gaussian(0.4, 0.58, 0.88, 0.24, 0.14, 10),
+        gaussian(1.0, 0.74, 0.64, 0.42, 0.20, 80),
+        gaussian(0.8, 0.84, 0.14, 0.24, 0.15, 30),
+        gaussian(0.4, 0.40, 0.36, 0.20, 0.12, 20),
+    ],
+    "bands": [(0.16, BLUE), (0.40, SAND), (0.62, ORANGE), (0.85, ORANGE_DEEP)],
+}
+
+# Same idea pushed further: the main peak hugs the right edge so the orange
+# bands run into the orange face along their shared edge.
+FIELD_WARM_EDGE = {
+    "base": BLUE_DEEP,
+    "bumps": [
+        gaussian(1.0, 0.90, 0.72, 0.44, 0.24, 80),
+        gaussian(0.7, 0.68, 0.18, 0.26, 0.15, -20),
+        gaussian(0.35, 0.28, 0.62, 0.18, 0.11, 40),
     ],
     "bands": [(0.16, BLUE), (0.40, SAND), (0.62, ORANGE), (0.85, ORANGE_DEEP)],
 }
@@ -664,6 +679,7 @@ OPTIONS = {
     "a4-twin-peaks": lambda: option_a_cube_loupe(label="A4", top_face=top_face_contours(FIELD_TWIN_PEAKS, INK)),
     "a5-gridded-field": lambda: option_a_cube_loupe(label="A5", top_face=top_face_contours(FIELD_EDDY, INK, grid_color=INK)),
     "a6-isolines": lambda: option_a_cube_loupe(label="A6", top_face=top_face_isolines),
+    "a7-warm-edge": lambda: option_a_cube_loupe(label="A7", top_face=top_face_contours(FIELD_WARM_EDGE, INK)),
     "b-tiles-loupe": option_b_tiles_loupe,
     "c-globe": option_c_globe,
     "d-bold-cube": option_d_bold_cube,
