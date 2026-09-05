@@ -22,7 +22,9 @@ down to what survives 16 px.
 | `a4-twin-peaks.svg`       | A-series, contoured top: a sequential field from deep blue through sand to orange. The warm peak sits in the front-right half, toward the orange face, and the field cools toward the back-left corner above the blue face. | Cube with a blue/orange top           |
 | `a5-gridded-field.svg`    | A-series, contoured top: a broad warm ridge across a blue field, with the 3x3 grid faintly continued over the top so all three faces read as gridded.                       | Cube with a mostly blue top           |
 | `a6-isolines.svg`         | A-series, contoured top: the A3 field as unfilled isolines only, orange and blue on cream. Topographic-map look; at 16 px the top is plain cream.                            | Cube with a cream top                 |
-| `a7-warm-edge.svg`        | A4 pushed further: the warm peak hugs the right edge so the orange bands run into the orange face along their shared edge, with a small island and deep blue at the back-left. | Cube with a blue/orange top           |
+| `a7-warm-edge.svg`        | A4 pushed further: the warm peak hugs the right edge so the orange bands run into the orange face along their shared edge, with a small island and deep blue at the back-left. The loupe is ink with a thin white edge so it separates from both faces. | Cube with a blue/orange top and a dark ring |
+| `a7-warm-edge-small.svg`  | A7's reduced artwork for the 16 and 32 px slots: two contour bands and no isolines, a 2x2 grid, heavier outlines, a bigger loupe. See "Detail per size" below.             | Same, bolder                          |
+| `a7-warm-edge-bare.svg`   | A7 without the rounded rectangle or its shadow: the cube and loupe alone on a transparent canvas, scaled up. For an Icon Composer layer, a document icon, or the README.    | Cube and ring, no tile                |
 | `b-tiles-loupe.svg`       | Flat 4x4 field of rounded chunk tiles in a stepped cool-to-warm ramp, with the loupe zooming a 2x2 block. The "chunked array" reading of Zarr/Icechunk, no perspective.      | Coloured grid with a white circle     |
 | `c-globe.svg`             | Graticule globe (parallels and meridians) with one grid cell lit orange. The earth-science reading; no loupe.                                                               | Blue disc with white lines            |
 | `d-bold-cube.svg`         | Isometric cube with a 3x3 grid on every face and one hot chunk per face. Boldest silhouette; risks a Rubik's cube association.                                              | Three-colour cube                     |
@@ -30,6 +32,17 @@ down to what survives 16 px.
 
 Rendered 1024 px masters for each live in `masters/`; the one that gets
 picked is the `AppIcon` master, as is.
+
+## Detail per size
+
+A macOS `AppIcon.appiconset` is not limited to one 1024 master: Xcode
+accepts separate PNGs for 16, 32, 128, 256 and 512 pt at 1x and 2x, and
+Finder picks the closest. So the artwork can change with size. The
+`-small` variants are drawn for the 16 and 32 pt slots (16, 32 and 64 px
+files): fewer contour bands, no isolines, a 2x2 grid instead of 3x3,
+heavier outlines, a bigger loupe. The full artwork covers 128 pt and up.
+The comparison sheet's "(multi-size)" row shows the combination as Finder
+would display it.
 
 ## What every option shares
 

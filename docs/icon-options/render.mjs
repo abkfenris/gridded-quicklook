@@ -71,7 +71,27 @@ const header =
     .map((s) => `<th style="font:12px -apple-system,system-ui,sans-serif;color:#666;padding:6px">${s} px</th>`)
     .join("") +
   `</tr>`;
-const sheet = `<style>html,body{margin:0;background:#fff}table{border-collapse:separate;border-spacing:0 8px;margin:16px}</style><table>${header}${rows}</table>`;
+// For options that ship a reduced "-small" artwork, add a composite row
+// showing what a multi-size icon set would display: the full artwork at
+// 128 px and the small artwork at 64 px and below.
+const composite = svgs
+  .filter((f) => svgs.includes(f.replace(/\.svg$/, "-small.svg")))
+  .map((file) => {
+    const name = basename(file, ".svg");
+    const cells = (bg) =>
+      sheetSizes
+        .map((s) => {
+          const art = s >= 128 ? name : `${name}-small`;
+          return (
+            `<td style="background:${bg};padding:16px;vertical-align:middle;text-align:center">` +
+            `<img src="renders/${art}-${s}.png" width="${s}" height="${s}" style="display:inline-block"></td>`
+          );
+        })
+        .join("");
+    return `<tr><th style="text-align:left;padding:12px 16px;font:600 15px -apple-system,system-ui,sans-serif;color:#222">${name} (multi-size)</th>${cells("#ececec")}${cells("#2b2b2e")}</tr>`;
+  })
+  .join("");
+const sheet = `<style>html,body{margin:0;background:#fff}table{border-collapse:separate;border-spacing:0 8px;margin:16px}</style><table>${header}${rows}${composite}</table>`;
 
 writeFileSync(join(here, "comparison.html"), sheet);
 const page = await browser.newPage({ viewport: { width: 1600, height: 200 }, deviceScaleFactor: 1 });

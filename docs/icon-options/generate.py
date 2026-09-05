@@ -370,6 +370,13 @@ FIELD_WARM_EDGE = {
     "bands": [(0.16, BLUE), (0.40, SAND), (0.62, ORANGE), (0.85, ORANGE_DEEP)],
 }
 
+# The same field with two bands, no island, for the 16 and 32 px artwork.
+FIELD_WARM_EDGE_SMALL = {
+    "base": BLUE_DEEP,
+    "bumps": FIELD_WARM_EDGE["bumps"][:2],
+    "bands": [(0.22, SAND), (0.62, ORANGE_DEEP)],
+}
+
 FIELD_EDDY = {
     "base": BLUE_DEEP,
     "bumps": [
@@ -396,19 +403,20 @@ def top_face_bullseye(top, k):
     return "".join(out)
 
 
-def top_face_contours(field, line_color, grid_color=None, fill=True):
+def top_face_contours(field, line_color, grid_color=None, fill=True, isolines=True):
     """A contoured scalar field lying on the top face (see FIELD_*)."""
+    lo = 0.45 if isolines else 0.0
 
     def draw(top, k):
         out = [f'    <polygon points="{pts(top)}" fill="{field["base"]}"/>\n', '    <g clip-path="url(#top-face)">\n']
         if "bands" in field:
-            out.append(contour_field_svg(top, field["bumps"], field["bands"], line_color, fill=fill))
+            out.append(contour_field_svg(top, field["bumps"], field["bands"], line_color, fill=fill, line_opacity=lo))
         else:
             # diverging field: warm bands are superlevel sets of f, cold bands
             # are superlevel sets of -f
             neg = [lambda u, v, b=b: -b(u, v) for b in field["bumps"]]
-            out.append(contour_field_svg(top, field["bumps"], field["warm"], line_color, fill=fill))
-            out.append(contour_field_svg(top, neg, field["cold"], line_color, fill=fill))
+            out.append(contour_field_svg(top, field["bumps"], field["warm"], line_color, fill=fill, line_opacity=lo))
+            out.append(contour_field_svg(top, neg, field["cold"], line_color, fill=fill, line_opacity=lo))
         if grid_color:
             out.append(polyline_group(face_grid_lines(top, 3), grid_color, 10, 0.35))
         out.append("    </g>\n")
@@ -431,24 +439,45 @@ def top_face_isolines(top, k):
     return "".join(out)
 
 
-def option_a_cube_loupe(background: str = PALE, label: str = "A", top_face=top_face_bullseye) -> str:
+def option_a_cube_loupe(
+    background: str = PALE,
+    label: str = "A",
+    top_face=top_face_bullseye,
+    bare: bool = False,
+    detail: str = "full",
+    loupe_fill: str = WHITE,
+) -> str:
     """Isometric data cube with a field on the top face and a Quick Look loupe.
 
     The closest reading of the Gemini concept: gridded side faces, a colour
     field on top, a loupe over one corner. The play button is gone (it reads
     as a media app). `top_face` draws the field; the contour variants are the
     ones that read as data.
+
+    `bare` drops the rounded-rectangle background and its shadow (for an Icon
+    Composer layer, a document icon, or the README) and lets the cube use
+    more of the canvas. `detail="small"` is the reduced artwork for the 16
+    and 32 px slots of a multi-size icon set: a coarser grid, heavier
+    outlines, a bigger loupe. `loupe_fill` is the ring colour; the ring gets
+    a thin edge in the opposite tone so it separates from both faces.
     """
-    s = 330
-    cx, cy = 500, 560
+    if bare:
+        s, cx, cy = 400, 500, 540
+    else:
+        s, cx, cy = 330, 500, 560
+    small = detail == "small"
     top, left, right = iso_cube(cx, cy, s)
     n, e, sv, wv = top
     outline_col = NAVY if background == PALE else INK
+    stroke_w = s / (11 if small else 15)
+    grid_div = 2 if small else 3
+    grid_w = s / (20 if small else 33)
     out = [svg_open(f"GridLook icon, option {label}: data cube with loupe")]
     out.append(f'    <clipPath id="top-face"><polygon points="{pts(top)}"/></clipPath>\n')
     out.append("  </defs>\n")
-    out.append(shadow_layer())
-    out.append(background_layer(background))
+    if not bare:
+        out.append(shadow_layer())
+        out.append(background_layer(background))
     out.append('  <g id="layer-midground">\n')
     # faces
     out.append(f'    <polygon points="{pts(left)}" fill="{BLUE}"/>\n')
@@ -457,16 +486,27 @@ def option_a_cube_loupe(background: str = PALE, label: str = "A", top_face=top_f
     # with ry/rx = tan 30deg; the top-face drawers get that ratio.
     out.append(top_face(top, math.tan(math.radians(30))))
     # grid lines on the two side faces only (the top face carries the field)
-    out.append(polyline_group(face_grid_lines(left, 3), outline_col, 10, 0.5))
-    out.append(polyline_group(face_grid_lines(right, 3), outline_col, 10, 0.5))
+    out.append(polyline_group(face_grid_lines(left, grid_div), outline_col, grid_w, 0.5))
+    out.append(polyline_group(face_grid_lines(right, grid_div), outline_col, grid_w, 0.5))
     # cube outline
     outline = [n, e, (e[0], e[1] + s), (sv[0], sv[1] + s), (wv[0], wv[1] + s), wv]
-    out.append(f'    <polygon points="{pts(outline)}" fill="none" stroke="{outline_col}" stroke-width="22" stroke-linejoin="round"/>\n')
+    out.append(
+        f'    <polygon points="{pts(outline)}" fill="none" stroke="{outline_col}" stroke-width="{stroke_w:.1f}" stroke-linejoin="round"/>\n'
+    )
     for a, b in ((wv, sv), (sv, e), (sv, (sv[0], sv[1] + s))):
-        out.append(f'    <line x1="{a[0]:.1f}" y1="{a[1]:.1f}" x2="{b[0]:.1f}" y2="{b[1]:.1f}" stroke="{outline_col}" stroke-width="22" stroke-linecap="round"/>\n')
+        out.append(
+            f'    <line x1="{a[0]:.1f}" y1="{a[1]:.1f}" x2="{b[0]:.1f}" y2="{b[1]:.1f}" '
+            f'stroke="{outline_col}" stroke-width="{stroke_w:.1f}" stroke-linecap="round"/>\n'
+        )
     out.append("  </g>\n")
+    # Loupe over the back-right corner, placed relative to that corner so it
+    # follows the cube when the cube is rescaled.
     out.append('  <g id="layer-foreground">\n')
-    out.append(loupe(690, 330, 120, 36, 160, outline=outline_col, glass="rgba(255,255,255,0.18)"))
+    lx, ly = e[0] - 0.29 * s, e[1] - 0.20 * s
+    r = s * (0.40 if small else 0.36)
+    ring = s * (0.14 if small else 0.11)
+    edge = WHITE if loupe_fill != WHITE else outline_col
+    out.append(loupe(lx, ly, r, ring, 0.48 * s, stroke=loupe_fill, outline=edge, glass="rgba(255,255,255,0.18)"))
     out.append("  </g>\n")
     out.append(svg_close())
     return "".join(out)
@@ -679,7 +719,18 @@ OPTIONS = {
     "a4-twin-peaks": lambda: option_a_cube_loupe(label="A4", top_face=top_face_contours(FIELD_TWIN_PEAKS, INK)),
     "a5-gridded-field": lambda: option_a_cube_loupe(label="A5", top_face=top_face_contours(FIELD_EDDY, INK, grid_color=INK)),
     "a6-isolines": lambda: option_a_cube_loupe(label="A6", top_face=top_face_isolines),
-    "a7-warm-edge": lambda: option_a_cube_loupe(label="A7", top_face=top_face_contours(FIELD_WARM_EDGE, INK)),
+    "a7-warm-edge": lambda: option_a_cube_loupe(
+        label="A7", top_face=top_face_contours(FIELD_WARM_EDGE, INK), loupe_fill=INK
+    ),
+    "a7-warm-edge-small": lambda: option_a_cube_loupe(
+        label="A7 small",
+        top_face=top_face_contours(FIELD_WARM_EDGE_SMALL, INK, isolines=False),
+        detail="small",
+        loupe_fill=INK,
+    ),
+    "a7-warm-edge-bare": lambda: option_a_cube_loupe(
+        label="A7 bare", top_face=top_face_contours(FIELD_WARM_EDGE, INK), loupe_fill=INK, bare=True
+    ),
     "b-tiles-loupe": option_b_tiles_loupe,
     "c-globe": option_c_globe,
     "d-bold-cube": option_d_bold_cube,
