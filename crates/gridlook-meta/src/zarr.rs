@@ -6,8 +6,9 @@
 //! files are read; chunk data is never opened, so previews are always
 //! omitted (see [`summarize_zarr`] for details).
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::ops::Bound;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -266,6 +267,18 @@ fn json_value_to_attr(value: &Value) -> AttrValue {
     }
 }
 
+/// Entries of `map` whose key lies strictly under `prefix` (starts with it
+/// and is longer). Sorted maps keep every key sharing a prefix contiguous,
+/// so this is a range scan that stops at the first key past the block
+/// rather than a filter over the whole map.
+fn keys_under<'a, V>(
+    map: &'a BTreeMap<String, V>,
+    prefix: &'a str,
+) -> impl Iterator<Item = (&'a String, &'a V)> + 'a {
+    map.range::<str, _>((Bound::Excluded(prefix), Bound::Unbounded))
+        .take_while(move |(key, _)| key.starts_with(prefix))
+}
+
 // ---------------------------------------------------------------------
 // JSON file I/O helpers
 // ---------------------------------------------------------------------
@@ -338,6 +351,73 @@ pub(crate) fn v3_node_attrs(node: &NodeMetadataV3) -> &serde_json::Map<String, V
 #[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
 pub(crate) fn empty_v3_group_node() -> NodeMetadataV3 {
     NodeMetadataV3::Group(GroupMetadataV3::default())
+}
+
+/// Builds a group tree from a flat map of *relative* node paths (`""` for
+/// the root, `"a/b"` for nested nodes; no leading or trailing slash) to
+/// parsed v3 node metadata. That is the shape an Icechunk snapshot's node
+/// list comes in, so the hierarchy is recovered here rather than per
+/// reader. A missing root entry is treated as an attribute-less group.
+///
+/// `store_root` only serves to name the offending node in errors.
+///
+/// Each group finds its children with a range scan ([`keys_under`]) over
+/// the sorted map, so the whole build costs O(N · depth) key comparisons
+/// instead of the O(N · groups) of filtering the entire map once per group.
+#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
+pub(crate) fn build_v3_tree(
+    nodes: &BTreeMap<String, NodeMetadataV3>,
+    store_root: &Path,
+) -> Result<GroupSummary, MetaError> {
+    let empty_root = empty_v3_group_node();
+    let root = nodes.get("").unwrap_or(&empty_root);
+    build_v3_tree_group(nodes, store_root, "", String::new(), root)
+}
+
+#[cfg_attr(not(feature = "icechunk"), allow(dead_code))]
+fn build_v3_tree_group(
+    nodes: &BTreeMap<String, NodeMetadataV3>,
+    store_root: &Path,
+    node_path: &str,
+    name: String,
+    meta: &NodeMetadataV3,
+) -> Result<GroupSummary, MetaError> {
+    let prefix = if node_path.is_empty() {
+        String::new()
+    } else {
+        format!("{node_path}/")
+    };
+
+    let mut vars = Vec::new();
+    let mut children = Vec::new();
+    for (child_path, child_meta) in keys_under(nodes, &prefix) {
+        let rest = &child_path[prefix.len()..];
+        if rest.contains('/') {
+            // A grandchild or deeper: its own parent group collects it.
+            continue;
+        }
+        match child_meta {
+            NodeMetadataV3::Array(array) => vars.push(v3_var_summary(
+                rest.to_owned(),
+                array,
+                &store_root.join(child_path),
+            )?),
+            NodeMetadataV3::Group(_) => children.push(build_v3_tree_group(
+                nodes,
+                store_root,
+                child_path,
+                rest.to_owned(),
+                child_meta,
+            )?),
+        }
+    }
+
+    Ok(build_group_summary(
+        name,
+        v3_node_attrs(meta),
+        vars,
+        children,
+    ))
 }
 
 /// Walks a v3 group's children, given `own` — the group's `zarr.json`
@@ -505,14 +585,16 @@ fn walk_v2_group(
 fn v2_var_summary(name: String, dir: &Path) -> Result<VarSummary, MetaError> {
     let array: ArrayMetadataV2 = read_json_as(&dir.join(".zarray"))?;
     let attrs = read_v2_attrs(dir)?;
-    v2_var_from_parts(name, &array, &attrs)
+    Ok(v2_var_from_parts(name, &array, &attrs))
 }
 
+/// Pure assembly of an already-parsed v2 array's metadata and attributes;
+/// nothing here can fail, all I/O and JSON parsing happens in the callers.
 fn v2_var_from_parts(
     name: String,
     array: &ArrayMetadataV2,
     attrs: &serde_json::Map<String, Value>,
-) -> Result<VarSummary, MetaError> {
+) -> VarSummary {
     let array_dimensions = attrs
         .get("_ARRAY_DIMENSIONS")
         .and_then(Value::as_array)
@@ -523,7 +605,7 @@ fn v2_var_from_parts(
         });
     let dims = resolve_dim_names(&array_dimensions, array.shape.len());
 
-    Ok(VarSummary {
+    VarSummary {
         name,
         dtype: v2_dtype_from_metadata(&array.dtype),
         dims,
@@ -531,7 +613,7 @@ fn v2_var_from_parts(
         chunks: Some(array.chunks.iter().map(|n| n.get()).collect()),
         attrs: json_object_to_attrs(attrs),
         preview: None,
-    })
+    }
 }
 
 /// Numpy-style dtype string for a Zarr v2 `dtype`. A `Simple` dtype is a
@@ -614,39 +696,50 @@ struct ConsolidatedMetadata {
     metadata: BTreeMap<String, Value>,
 }
 
+/// Splits a `.zmetadata` key into the node's relative path and the per-node
+/// file it names: `g/arr/.zarray` → `("g/arr", ".zarray")`, and a root-level
+/// `.zgroup` → `("", ".zgroup")`.
+fn split_consolidated_key(key: &str) -> (&str, &str) {
+    match key.rsplit_once('/') {
+        Some((node_path, file)) => (node_path, file),
+        None => ("", key),
+    }
+}
+
 fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaError> {
     let meta_path = store_dir.join(".zmetadata");
     let consolidated: ConsolidatedMetadata = read_json_as(&meta_path)?;
 
-    let mut group_paths: HashSet<String> = HashSet::new();
-    let mut arrays: HashMap<String, ArrayMetadataV2> = HashMap::new();
-    let mut attrs: HashMap<String, serde_json::Map<String, Value>> = HashMap::new();
+    // Sorted so that `build_v2_consolidated_group` can find a group's
+    // children with a range scan instead of filtering every entry per group.
+    let mut group_paths: BTreeSet<String> = BTreeSet::new();
+    let mut arrays: BTreeMap<String, ArrayMetadataV2> = BTreeMap::new();
+    let mut attrs: BTreeMap<String, serde_json::Map<String, Value>> = BTreeMap::new();
 
     for (key, value) in consolidated.metadata {
-        if let Some(node_path) = key.strip_suffix("/.zgroup").or(match key.as_str() {
-            ".zgroup" => Some(""),
-            _ => None,
-        }) {
-            group_paths.insert(node_path.to_owned());
-        } else if let Some(node_path) = key.strip_suffix("/.zarray").or(match key.as_str() {
-            ".zarray" => Some(""),
-            _ => None,
-        }) {
-            let array: ArrayMetadataV2 =
-                serde_json::from_value(value).map_err(|source| MetaError::Json {
-                    path: meta_path.clone(),
-                    source,
-                })?;
-            arrays.insert(node_path.to_owned(), array);
-        } else if let Some(node_path) = key.strip_suffix("/.zattrs").or(match key.as_str() {
-            ".zattrs" => Some(""),
-            _ => None,
-        }) && let Some(map) = value.as_object()
-        {
-            attrs.insert(node_path.to_owned(), map.clone());
+        let (node_path, file) = split_consolidated_key(&key);
+        match file {
+            ".zgroup" => {
+                group_paths.insert(node_path.to_owned());
+            }
+            ".zarray" => {
+                let array: ArrayMetadataV2 =
+                    serde_json::from_value(value).map_err(|source| MetaError::Json {
+                        path: meta_path.clone(),
+                        source,
+                    })?;
+                arrays.insert(node_path.to_owned(), array);
+            }
+            ".zattrs" => {
+                if let Some(map) = value.as_object() {
+                    attrs.insert(node_path.to_owned(), map.clone());
+                }
+            }
+            // `.zmetadata` itself (nested, shouldn't occur) and any other
+            // key is ignored: only the three per-node file kinds above are
+            // meaningful.
+            _ => {}
         }
-        // `.zmetadata` itself (nested, shouldn't occur) and any other key is
-        // ignored: only the three per-node file kinds above are meaningful.
     }
 
     // Ensure the root is always treated as a group even if `.zmetadata`
@@ -666,9 +759,9 @@ fn summarize_v2_consolidated(store_dir: &Path) -> Result<DatasetSummary, MetaErr
 fn build_v2_consolidated_group(
     node_path: String,
     name: String,
-    arrays: &HashMap<String, ArrayMetadataV2>,
-    attrs: &HashMap<String, serde_json::Map<String, Value>>,
-    group_paths: &HashSet<String>,
+    arrays: &BTreeMap<String, ArrayMetadataV2>,
+    attrs: &BTreeMap<String, serde_json::Map<String, Value>>,
+    group_paths: &BTreeSet<String>,
 ) -> GroupSummary {
     let empty = serde_json::Map::new();
     let own_attrs = attrs.get(&node_path).unwrap_or(&empty);
@@ -680,18 +773,16 @@ fn build_v2_consolidated_group(
     };
 
     // Direct-child array nodes: keys under this prefix with no further "/".
-    let mut vars: Vec<VarSummary> = arrays
-        .iter()
+    let vars: Vec<VarSummary> = keys_under(arrays, &prefix)
         .filter_map(|(path, array)| {
-            let rest = path.strip_prefix(&prefix)?;
-            if rest.is_empty() || rest.contains('/') {
+            let rest = &path[prefix.len()..];
+            if rest.contains('/') {
                 return None;
             }
             let var_attrs = attrs.get(path).unwrap_or(&empty);
-            v2_var_from_parts(rest.to_owned(), array, var_attrs).ok()
+            Some(v2_var_from_parts(rest.to_owned(), array, var_attrs))
         })
         .collect();
-    vars.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Direct-child group nodes: any path under this prefix with no further
     // "/" that isn't itself an array — discovered from the union of
@@ -706,14 +797,15 @@ fn build_v2_consolidated_group(
     // itself carries no `.zgroup`/`.zattrs` entry of its own — dropping such
     // paths outright (as opposed to only direct-child arrays) would silently
     // lose that whole subtree.
+    let group_paths_under = group_paths
+        .range::<str, _>((Bound::Excluded(prefix.as_str()), Bound::Unbounded))
+        .take_while(|path| path.starts_with(&prefix));
     let mut child_names: BTreeMap<String, String> = BTreeMap::new();
-    for path in group_paths.iter().chain(attrs.keys()).chain(arrays.keys()) {
-        let Some(rest) = path.strip_prefix(&prefix) else {
-            continue;
-        };
-        if rest.is_empty() {
-            continue;
-        }
+    for path in group_paths_under
+        .chain(keys_under(attrs, &prefix).map(|(path, _)| path))
+        .chain(keys_under(arrays, &prefix).map(|(path, _)| path))
+    {
+        let rest = &path[prefix.len()..];
         let is_direct_child_array = !rest.contains('/') && arrays.contains_key(path);
         if is_direct_child_array {
             continue;
@@ -800,6 +892,84 @@ mod tests {
         );
     }
 
+    fn v3_group_node() -> NodeMetadataV3 {
+        NodeMetadataV3::Group(GroupMetadataV3::default())
+    }
+
+    fn v3_array_node() -> NodeMetadataV3 {
+        let chunk_grid = MetadataV3::new_with_serializable_configuration(
+            "regular".to_owned(),
+            &serde_json::json!({ "chunk_shape": [2] }),
+        )
+        .expect("build regular chunk grid metadata");
+        NodeMetadataV3::Array(ArrayMetadataV3::new(
+            vec![2],
+            chunk_grid,
+            MetadataV3::new("float32"),
+            FillValueMetadataV3::Null,
+            Vec::new(),
+        ))
+    }
+
+    fn names(vars: &[VarSummary]) -> Vec<&str> {
+        vars.iter().map(|v| v.name.as_str()).collect()
+    }
+
+    #[test]
+    fn keys_under_yields_only_the_prefix_block() {
+        let map: BTreeMap<String, ()> = ["", "a", "a-", "a/b", "a/b/c", "a/x", "ab", "b"]
+            .into_iter()
+            .map(|k| (k.to_owned(), ()))
+            .collect();
+        let under_a: Vec<&str> = keys_under(&map, "a/").map(|(k, _)| k.as_str()).collect();
+        assert_eq!(under_a, vec!["a/b", "a/b/c", "a/x"]);
+        // The root prefix covers everything except the root itself.
+        let under_root: Vec<&str> = keys_under(&map, "").map(|(k, _)| k.as_str()).collect();
+        assert_eq!(
+            under_root,
+            vec!["a", "a-", "a/b", "a/b/c", "a/x", "ab", "b"]
+        );
+        assert_eq!(keys_under(&map, "zzz/").count(), 0);
+    }
+
+    #[test]
+    fn build_v3_tree_recovers_nesting_from_flat_paths() {
+        let nodes: BTreeMap<String, NodeMetadataV3> = [
+            ("", v3_group_node()),
+            ("a", v3_group_node()),
+            ("a/b", v3_group_node()),
+            ("a/b/deep", v3_array_node()),
+            ("a/x", v3_array_node()),
+            // Shares the byte prefix "a" but is not under "a/".
+            ("ab", v3_array_node()),
+            ("c", v3_array_node()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v))
+        .collect();
+
+        let root = build_v3_tree(&nodes, Path::new("store.zarr")).expect("build tree");
+        assert_eq!(names(&root.data_vars), vec!["ab", "c"]);
+        assert_eq!(root.children.len(), 1);
+        let a = &root.children[0];
+        assert_eq!(a.name, "a");
+        assert_eq!(names(&a.data_vars), vec!["x"]);
+        assert_eq!(a.children.len(), 1);
+        let b = &a.children[0];
+        assert_eq!(b.name, "b");
+        assert_eq!(names(&b.data_vars), vec!["deep"]);
+        assert!(b.children.is_empty());
+    }
+
+    #[test]
+    fn build_v3_tree_without_a_root_entry_yields_an_empty_root_group() {
+        let nodes: BTreeMap<String, NodeMetadataV3> =
+            [("only".to_owned(), v3_array_node())].into_iter().collect();
+        let root = build_v3_tree(&nodes, Path::new("store.zarr")).expect("build tree");
+        assert!(root.attrs.is_empty());
+        assert_eq!(names(&root.data_vars), vec!["only"]);
+    }
+
     /// The JSON snapshots can't see this: `AttrValue::Float(NaN)` serializes
     /// as `null`, indistinguishable from a missing value, so the decode is
     /// asserted here directly.
@@ -835,6 +1005,18 @@ mod tests {
             decode_base64_float_attr("_FillValue", &serde_json::json!(1.5)),
             None
         );
+    }
+
+    #[test]
+    fn split_consolidated_key_separates_node_path_from_file() {
+        assert_eq!(split_consolidated_key(".zgroup"), ("", ".zgroup"));
+        assert_eq!(split_consolidated_key("g/.zattrs"), ("g", ".zattrs"));
+        assert_eq!(
+            split_consolidated_key("g/arr/.zarray"),
+            ("g/arr", ".zarray")
+        );
+        // Not a per-node file name: falls through to the ignored branch.
+        assert_eq!(split_consolidated_key("foo.zgroup"), ("", "foo.zgroup"));
     }
 
     #[test]
