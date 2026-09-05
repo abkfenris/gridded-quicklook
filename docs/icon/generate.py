@@ -3,7 +3,7 @@
 
 The icon is an isometric data cube: gridded blue and orange side faces, a
 contoured scalar field on top that warms toward the orange face, and a
-Quick Look loupe over the back-right corner. Three files come out:
+Quick Look loupe over the back-right corner. Four files come out:
 
   gridlook.svg        the full artwork on Apple's macOS icon template
                       (824 px rounded rectangle centred on a 1024 canvas,
@@ -12,15 +12,19 @@ Quick Look loupe over the back-right corner. Three files come out:
                       two contour bands, no isolines, a 2x2 grid, heavier
                       outlines, a bigger loupe
   gridlook-bare.svg   the cube and loupe alone on a transparent canvas,
-                      for an Icon Composer layer or a document-icon badge
+                      for an Icon Composer layer
+  gridlook-badge.svg  the cube alone, no loupe, filling the canvas: the
+                      badge the system composes onto the .zarr and
+                      .icechunk document icons (UTTypeIcons in
+                      apple/App/Info.plist)
 
 Each SVG is grouped into `<g id="layer-...">` groups (shadow, background,
 midground, foreground) so the artwork can be split into an Icon Composer
 `.icon` bundle for macOS 26 later, with the flat PNGs as the fallback for
 macOS 13 to 15. No text, no gradients, a short flat palette.
 
-Run it directly (no dependencies), then `node appiconset.mjs` to render
-the asset catalog. The design history is in the git log of the
+Run it directly (no dependencies), then `node assets.mjs` to render the
+asset catalog. The design history is in the git log of the
 docs/icon-options directory this replaced.
 """
 
@@ -356,16 +360,20 @@ FIELD_SMALL = {
 # --- the icon ---------------------------------------------------------------
 
 
-def icon(bare: bool = False, small: bool = False) -> str:
+def icon(bare: bool = False, small: bool = False, with_loupe: bool = True) -> str:
     """Isometric data cube with a contoured field on top and a Quick Look
     loupe over the back-right corner.
 
     `bare` drops the rounded-rectangle background and its shadow and lets
     the cube use more of the canvas. `small` is the reduced artwork for the
     16 and 32 pt slots of the icon set: a coarser grid, heavier outlines, a
-    bigger loupe, the two-band field.
+    bigger loupe, the two-band field. Without the loupe (`with_loupe=False`,
+    only meaningful with `bare`) the cube is centred and fills the canvas:
+    that is the document-icon badge.
     """
-    if bare:
+    if bare and not with_loupe:
+        s, cx, cy = 480, 512, 512
+    elif bare:
         s, cx, cy = 400, 500, 540
     else:
         s, cx, cy = 330, 500, 560
@@ -377,6 +385,8 @@ def icon(bare: bool = False, small: bool = False) -> str:
     field = FIELD_SMALL if small else FIELD
 
     title = "GridLook icon" + (" (bare)" if bare else "") + (" (small sizes)" if small else "")
+    if not with_loupe:
+        title = "GridLook document badge"
     out = [svg_open(title)]
     out.append(f'    <clipPath id="top-face"><polygon points="{pts(top)}"/></clipPath>\n')
     out.append("  </defs>\n")
@@ -407,12 +417,13 @@ def icon(bare: bool = False, small: bool = False) -> str:
     out.append("  </g>\n")
     # Loupe over the back-right corner, placed relative to that corner so it
     # follows the cube when the cube is rescaled. Ink ring, thin white edge.
-    out.append('  <g id="layer-foreground">\n')
-    lx, ly = e[0] - 0.29 * s, e[1] - 0.20 * s
-    r = s * (0.40 if small else 0.36)
-    ring = s * (0.14 if small else 0.11)
-    out.append(loupe(lx, ly, r, ring, 0.48 * s, stroke=INK, outline=WHITE, glass="rgba(255,255,255,0.18)"))
-    out.append("  </g>\n")
+    if with_loupe:
+        out.append('  <g id="layer-foreground">\n')
+        lx, ly = e[0] - 0.29 * s, e[1] - 0.20 * s
+        r = s * (0.40 if small else 0.36)
+        ring = s * (0.14 if small else 0.11)
+        out.append(loupe(lx, ly, r, ring, 0.48 * s, stroke=INK, outline=WHITE, glass="rgba(255,255,255,0.18)"))
+        out.append("  </g>\n")
     out.append(svg_close())
     return "".join(out)
 
@@ -421,6 +432,9 @@ OUTPUTS = {
     "gridlook": lambda: icon(),
     "gridlook-small": lambda: icon(small=True),
     "gridlook-bare": lambda: icon(bare=True),
+    # The badge is composed onto a document shape and shown small, so it
+    # uses the reduced (2x2 grid, two-band) styling.
+    "gridlook-badge": lambda: icon(bare=True, small=True, with_loupe=False),
 }
 
 
