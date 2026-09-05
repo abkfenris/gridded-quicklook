@@ -1022,7 +1022,7 @@ mod tests {
     /// hierarchy described inside it, and nothing is walked.
     #[test]
     fn v3_consolidated_metadata_is_read_instead_of_walking() {
-        let dir = temp_store_dir("consolidated.zarr");
+        let (_tmp, dir) = temp_store_dir("consolidated.zarr");
         let array = serde_json::to_value(v3_array_node()).expect("serialize array");
         let root = serde_json::json!({
             "zarr_format": 3,
@@ -1056,14 +1056,12 @@ mod tests {
         assert_eq!(g.name, "g");
         assert_eq!(g.attrs, vec![("level".to_owned(), AttrValue::Int(1))]);
         assert_eq!(names(&g.data_vars), vec!["y"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// An unrecognized `consolidated_metadata` shape falls back to walking.
     #[test]
     fn v3_unrecognized_consolidated_kind_falls_back_to_walking() {
-        let dir = temp_store_dir("odd_consolidated.zarr");
+        let (_tmp, dir) = temp_store_dir("odd_consolidated.zarr");
         let group = r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#;
         let root = serde_json::json!({
             "zarr_format": 3, "node_type": "group", "attributes": {},
@@ -1081,8 +1079,6 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(children, vec!["walked"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[test]
