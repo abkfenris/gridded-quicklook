@@ -78,6 +78,27 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gridlook.grib</string>
+			<key>UTTypeDescription</key>
+			<string>GRIB Dataset</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>grib</string>
+					<string>grib2</string>
+					<string>grb</string>
+					<string>grb2</string>
+					<string>gb2</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 	<!--
 	  Zarr stores and Icechunk repositories are *directories*, not files, and

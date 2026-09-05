@@ -7,9 +7,10 @@ prek = "latest"
 
 [tasks.test]
 description = "Run the Rust workspace test suite (regenerates fixtures first)"
-# Fixture data is generated, not committed -- tests read fixtures/data from
-# disk, so it must exist (and be current) before cargo test runs.
-depends = ["fixtures"]
+# Fixture data is generated or downloaded, not committed -- tests read
+# fixtures/data and fixtures/samples from disk, so both must exist (and be
+# current) before cargo test runs.
+depends = ["fixtures", "samples"]
 run = "cargo test --workspace"
 
 [tasks.lint]
@@ -24,6 +25,14 @@ run = "fixtures/generate.py"
 # regeneration cost after generate.py (or its pinned deps) change.
 sources = ["fixtures/generate.py"]
 outputs = ["fixtures/data/**/*", "fixtures/reference/*"]
+
+[tasks.samples]
+description = "Download the real-world sample files used by the test suite"
+run = "fixtures/download_samples.py"
+# Same source/output tracking as `fixtures`, and it matters more here: this
+# task talks to the network, so it must not run on every `mise run test`.
+sources = ["fixtures/download_samples.py"]
+outputs = ["fixtures/samples/*"]
 
 [tasks.sync-xarray-assets]
 description = "Sync xarray's HTML repr CSS/SVG assets (fetched from a pinned GitHub tag) into crates/gridlook-html"

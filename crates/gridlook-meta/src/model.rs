@@ -16,6 +16,7 @@ pub enum SourceFormat {
     ZarrV2,
     ZarrV3,
     Icechunk,
+    Grib,
 }
 
 /// Top-level summary of one dataset / store / repo.

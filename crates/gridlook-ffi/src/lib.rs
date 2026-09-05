@@ -19,8 +19,8 @@ use std::path::Path;
 
 use gridlook_html::{html_escape, render_page};
 use gridlook_meta::{
-    DatasetSummary, MetaError, is_icechunk_repo, summarize_icechunk, summarize_netcdf,
-    summarize_zarr,
+    DatasetSummary, MetaError, is_icechunk_repo, summarize_grib, summarize_icechunk,
+    summarize_netcdf, summarize_zarr,
 };
 
 /// A fixed, dynamic-content-free fallback used only if we somehow fail to
@@ -38,6 +38,16 @@ const NETCDF_LIKE_EXTENSIONS: &[&str] = &["nc", "nc4", "cdf", "h5", "hdf5", "he5
 
 /// HDF5 file signature (the start of the superblock).
 const HDF5_MAGIC: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
+
+/// File extensions routed through the GRIB reader when the file's
+/// signature isn't recognized, the counterpart of
+/// [`NETCDF_LIKE_EXTENSIONS`]. NCEP's own products carry no extension at
+/// all, which is exactly why signature sniffing comes first.
+const GRIB_EXTENSIONS: &[&str] = &["grib", "grib2", "grb", "grb2", "gb2"];
+
+/// GRIB indicator-section signature, shared by both editions (the edition
+/// number itself is byte 7).
+const GRIB_MAGIC: &[u8; 4] = b"GRIB";
 
 /// Root-level entries that mark a directory as a Zarr store: a v3 node
 /// document, a v2 group marker, or v2 consolidated metadata. Checked with a
@@ -168,7 +178,27 @@ fn summarize_file(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
     if has_netcdf_signature(path) || netcdf_like_extension {
         return Some(summarize_netcdf(path));
     }
+
+    let grib_extension = extension
+        .as_deref()
+        .is_some_and(|ext| GRIB_EXTENSIONS.contains(&ext));
+    if has_grib_signature(path) || grib_extension {
+        return Some(summarize_grib(path));
+    }
     None
+}
+
+/// Does the file start with a GRIB indicator section?
+///
+/// Both editions begin with the ASCII bytes `GRIB` at offset 0, so one
+/// four-byte read settles it. As with [`has_netcdf_signature`], any I/O
+/// trouble simply reads as "no signature".
+fn has_grib_signature(path: &Path) -> bool {
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    read_at(&mut file, 0, &mut magic) && &magic == GRIB_MAGIC
 }
 
 /// Does the file start like something libnetcdf can open?
@@ -437,6 +467,57 @@ mod tests {
         assert!(
             html.contains("failed to open"),
             "expected libnetcdf's open error, got: {html}"
+        );
+    }
+
+    /// The GRIB sample is downloaded rather than generated, so it lives in
+    /// `fixtures/samples` (mise task `samples`), not `fixtures/data`.
+    fn sample_path(relative: &str) -> String {
+        format!(
+            "{}/../../fixtures/samples/{relative}",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    const GRIB_SAMPLE: &str = "gfs.t00z.pgrb2.0p25.f003.sample.grib2";
+
+    #[test]
+    fn grib_file_renders_a_preview() {
+        let html = render(&sample_path(GRIB_SAMPLE));
+        assert!(
+            html.contains("xr-wrap"),
+            "expected a rendered preview, got: {html}"
+        );
+        assert!(!html.contains("gq-error"));
+        assert!(html.contains("GRIB"), "expected the GRIB format badge");
+    }
+
+    /// NCEP publishes its GRIB products with no file extension at all, so
+    /// the `GRIB` signature has to be what routes them.
+    #[test]
+    fn grib_file_with_no_extension_is_routed_by_its_signature() {
+        // The copy's name must differ from every other renamed-fixture
+        // test's: `render_renamed_fixture` derives its temp directory from
+        // the name alone, and the tests run concurrently.
+        let html =
+            render_renamed_fixture(&format!("../samples/{GRIB_SAMPLE}"), "grib_no_extension");
+        assert!(
+            html.contains("xr-wrap"),
+            "expected a rendered preview, got: {html}"
+        );
+        assert!(!html.contains("gq-error"));
+    }
+
+    /// A `.grib2` that holds no GRIB messages reaches the reader anyway,
+    /// so the user sees what actually went wrong rather than a generic
+    /// "unsupported file type" card.
+    #[test]
+    fn grib_extension_without_a_signature_still_reaches_the_reader() {
+        let html = render_renamed_fixture("../generate.py", "not_really.grib2");
+        assert!(html.contains("gq-error"));
+        assert!(
+            html.contains("no GRIB messages"),
+            "expected the GRIB reader's own error, got: {html}"
         );
     }
 

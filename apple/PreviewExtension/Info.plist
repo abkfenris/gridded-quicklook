@@ -44,6 +44,7 @@
 			<array>
 				<string>dev.gridlook.netcdf</string>
 				<string>dev.gridlook.hdf5</string>
+				<string>dev.gridlook.grib</string>
 				<string>dev.gridlook.zarr</string>
 				<string>dev.gridlook.icechunk</string>
 			</array>
