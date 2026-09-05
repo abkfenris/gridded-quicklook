@@ -60,10 +60,17 @@ mod enabled {
     const DEFAULT_BRANCH: &str = "main";
 
     /// Maximum number of snapshots (including the tip) walked back from
-    /// `main`'s tip when building [`VersionInfo::ancestry`]. Repos with deep
-    /// history are common enough (frequent small commits) that walking the
-    /// whole chain on every summarize call isn't worth it for a preview.
-    const ANCESTRY_LIMIT: usize = 20;
+    /// `main`'s tip when building [`VersionInfo::ancestry`].
+    ///
+    /// Each step is a `lookup_snapshot`, and an Icechunk snapshot file
+    /// carries the metadata of *every* node in the hierarchy, so a repo with
+    /// thousands of arrays pays for a full multi-megabyte snapshot read per
+    /// ancestor just to fill in a history footnote. The tip is already
+    /// loaded for the read-only session (and cached), so the walk costs
+    /// `ANCESTRY_LIMIT - 1` extra snapshot loads. Ten entries fill the
+    /// scrollable ancestry list in the preview; anything older is summarized
+    /// by the `N+` count.
+    const ANCESTRY_LIMIT: usize = 10;
 
     /// Summarize the Zarr hierarchy at the tip of `main` in the Icechunk repo
     /// rooted at `path`, together with its commit history.
