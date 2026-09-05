@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>GridLook icon, option B: chunked field with loupe</title>
+  <defs>
+    <clipPath id="icon-shape"><rect x="100.0" y="100.0" width="824" height="824" rx="185.4"/></clipPath>
+    <filter id="dock-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dy="10" result="b"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+    </filter>
+    <clipPath id="lens"><circle cx="620" cy="620" r="170"/></clipPath>
+  </defs>
+  <g id="layer-shadow">
+    <rect x="100.0" y="100.0" width="824" height="824" rx="185.4" fill="#000" filter="url(#dock-shadow)"/>
+  </g>
+  <g id="layer-background">
+    <rect x="100.0" y="100.0" width="824" height="824" rx="185.4" fill="#1B3A5C"/>
+  </g>
+  <g id="layer-midground">
+    <rect x="192.0" y="192.0" width="149.5" height="149.5" rx="22" fill="#0F2540"/>
+    <rect x="355.5" y="192.0" width="149.5" height="149.5" rx="22" fill="#0F2540"/>
+    <rect x="519.0" y="192.0" width="149.5" height="149.5" rx="22" fill="#2C6AA6"/>
+    <rect x="682.5" y="192.0" width="149.5" height="149.5" rx="22" fill="#2C6AA6"/>
+    <rect x="192.0" y="355.5" width="149.5" height="149.5" rx="22" fill="#0F2540"/>
+    <rect x="355.5" y="355.5" width="149.5" height="149.5" rx="22" fill="#2C6AA6"/>
+    <rect x="519.0" y="355.5" width="149.5" height="149.5" rx="22" fill="#3FA9A0"/>
+    <rect x="682.5" y="355.5" width="149.5" height="149.5" rx="22" fill="#E89B4B"/>
+    <rect x="192.0" y="519.0" width="149.5" height="149.5" rx="22" fill="#2C6AA6"/>
+    <rect x="355.5" y="519.0" width="149.5" height="149.5" rx="22" fill="#3FA9A0"/>
+    <rect x="519.0" y="519.0" width="149.5" height="149.5" rx="22" fill="#F6C77A"/>
+    <rect x="682.5" y="519.0" width="149.5" height="149.5" rx="22" fill="#E89B4B"/>
+    <rect x="192.0" y="682.5" width="149.5" height="149.5" rx="22" fill="#2C6AA6"/>
+    <rect x="355.5" y="682.5" width="149.5" height="149.5" rx="22" fill="#3FA9A0"/>
+    <rect x="519.0" y="682.5" width="149.5" height="149.5" rx="22" fill="#E89B4B"/>
+    <rect x="682.5" y="682.5" width="149.5" height="149.5" rx="22" fill="#3FA9A0"/>
+  </g>
+  <g id="layer-foreground">
+    <g clip-path="url(#lens)">
+      <circle cx="620" cy="620" r="170" fill="#1B3A5C"/>
+      <rect x="324.6" y="324.6" width="239.2" height="239.2" rx="44" fill="#F6C77A"/>
+      <rect x="586.2" y="324.6" width="239.2" height="239.2" rx="44" fill="#E89B4B"/>
+      <rect x="324.6" y="586.2" width="239.2" height="239.2" rx="44" fill="#E89B4B"/>
+      <rect x="586.2" y="586.2" width="239.2" height="239.2" rx="44" fill="#3FA9A0"/>
+    </g>
+    <line x1="754.4" y1="754.4" x2="846.3" y2="846.3" stroke="#1B3A5C" stroke-width="68.0" stroke-linecap="round"/>
+    <circle cx="620" cy="620" r="170" fill="none" stroke="#1B3A5C" stroke-width="54"/>
+    <line x1="754.4" y1="754.4" x2="846.3" y2="846.3" stroke="#FFFFFF" stroke-width="54.0" stroke-linecap="round"/>
+    <circle cx="620" cy="620" r="170" fill="none" stroke="#FFFFFF" stroke-width="40"/>
+  </g>
+</svg>

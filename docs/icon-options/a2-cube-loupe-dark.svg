@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>GridLook icon, option A2: data cube with loupe</title>
+  <defs>
+    <clipPath id="icon-shape"><rect x="100.0" y="100.0" width="824" height="824" rx="185.4"/></clipPath>
+    <filter id="dock-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
+      <feOffset dy="10" result="b"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+    </filter>
+    <clipPath id="top-face"><polygon points="500.0,230.0 785.8,395.0 500.0,560.0 214.2,395.0"/></clipPath>
+  </defs>
+  <g id="layer-shadow">
+    <rect x="100.0" y="100.0" width="824" height="824" rx="185.4" fill="#000" filter="url(#dock-shadow)"/>
+  </g>
+  <g id="layer-background">
+    <rect x="100.0" y="100.0" width="824" height="824" rx="185.4" fill="#0F2540"/>
+  </g>
+  <g id="layer-midground">
+    <polygon points="214.2,395.0 500.0,560.0 500.0,890.0 214.2,725.0" fill="#3E86C6"/>
+    <polygon points="500.0,560.0 785.8,395.0 785.8,725.0 500.0,890.0" fill="#E89B4B"/>
+    <polygon points="500.0,230.0 785.8,395.0 500.0,560.0 214.2,395.0" fill="#3FA9A0"/>
+    <g clip-path="url(#top-face)">
+      <ellipse cx="570.0" cy="415.0" rx="250" ry="144.3" fill="#2C6AA6"/>
+      <ellipse cx="570.0" cy="415.0" rx="180" ry="103.9" fill="#E89B4B"/>
+      <ellipse cx="570.0" cy="415.0" rx="105" ry="60.6" fill="#F6C77A"/>
+    </g>
+    <line x1="309.5" y1="450.0" x2="309.5" y2="780.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="214.2" y1="505.0" x2="500.0" y2="670.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="404.7" y1="505.0" x2="404.7" y2="835.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="214.2" y1="615.0" x2="500.0" y2="780.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="595.3" y1="505.0" x2="595.3" y2="835.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="500.0" y1="670.0" x2="785.8" y2="505.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="690.5" y1="450.0" x2="690.5" y2="780.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <line x1="500.0" y1="780.0" x2="785.8" y2="615.0" stroke="#0F2540" stroke-width="10" stroke-linecap="round" opacity="0.5"/>
+    <polygon points="500.0,230.0 785.8,395.0 785.8,725.0 500.0,890.0 214.2,725.0 214.2,395.0" fill="none" stroke="#0F2540" stroke-width="22" stroke-linejoin="round"/>
+    <line x1="214.2" y1="395.0" x2="500.0" y2="560.0" stroke="#0F2540" stroke-width="22" stroke-linecap="round"/>
+    <line x1="500.0" y1="560.0" x2="785.8" y2="395.0" stroke="#0F2540" stroke-width="22" stroke-linecap="round"/>
+    <line x1="500.0" y1="560.0" x2="500.0" y2="890.0" stroke="#0F2540" stroke-width="22" stroke-linecap="round"/>
+  </g>
+  <g id="layer-foreground">
+    <circle cx="690" cy="330" r="120" fill="rgba(255,255,255,0.18)"/>
+    <line x1="787.6" y1="427.6" x2="888.0" y2="528.0" stroke="#0F2540" stroke-width="62.6" stroke-linecap="round"/>
+    <circle cx="690" cy="330" r="120" fill="none" stroke="#0F2540" stroke-width="50"/>
+    <line x1="787.6" y1="427.6" x2="888.0" y2="528.0" stroke="#FFFFFF" stroke-width="48.6" stroke-linecap="round"/>
+    <circle cx="690" cy="330" r="120" fill="none" stroke="#FFFFFF" stroke-width="36"/>
+  </g>
+</svg>

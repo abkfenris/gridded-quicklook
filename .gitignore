@@ -78,3 +78,7 @@ apple/*.xcodeproj
 fixtures/data/
 fixtures/reference/
 apple/include/
+
+# Icon candidate renders below 1024 px are throwaway (see docs/icon-options/render.mjs)
+docs/icon-options/renders/
+docs/icon-options/comparison.html
