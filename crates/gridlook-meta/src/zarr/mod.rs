@@ -13,7 +13,7 @@
 mod consolidated;
 pub(crate) mod store;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::Deserialize;
@@ -309,35 +309,47 @@ fn read_v2_attrs(
 // Zarr v3
 // ---------------------------------------------------------------------
 
-/// Inline consolidated metadata on a v3 root group, if present: zarr-python
-/// 3 writes `"consolidated_metadata": {"kind": "inline", "metadata": {path:
-/// node, ...}}` into the root `zarr.json`. `zarrs_metadata` has no typed
-/// field for it, so it is dug out of the group's additional fields. Returns
-/// the flat node list ready for [`build_tree_from_flat`], with the root
-/// group itself at `""`.
+/// zarr-python (3.x) can inline every descendant's `zarr.json` document
+/// into the root group's under a `consolidated_metadata` field:
+///
+/// ```json
+/// "consolidated_metadata": {
+///   "kind": "inline", "must_understand": false,
+///   "metadata": { "x": {…array…}, "g": {…group…}, "g/y": {…array…} }
+/// }
+/// ```
+///
+/// (Not part of the Zarr v3 spec yet, hence `must_understand: false`.) xarray
+/// writes it by default, and reading it turns a listing with several
+/// requests and a JSON read per node into a single document read: the
+/// difference between instant and sluggish on network or cloud-synced
+/// folders, and the only way to read a v3 store over plain HTTP, where
+/// listing is impossible. `zarrs_metadata` has no typed field for it, so it
+/// is dug out of the group's additional fields.
+///
+/// Returns `Ok(None)` when the field is absent or has a shape this reader
+/// doesn't recognize (a `kind` other than `inline`, no `metadata` object),
+/// in which case the caller falls back to walking the store; a document
+/// inside the map that fails to parse is an error, since a corrupt
+/// consolidated map isn't something a walk should silently paper over.
+/// The returned flat node list is ready for [`build_tree_from_flat`], with
+/// the root group itself (which zarr-python doesn't repeat inside the map)
+/// at `""`.
 fn v3_consolidated_nodes(
     group: &GroupMetadataV3,
     store: &dyn ZarrStore,
     opts: &SummarizeOptions,
 ) -> Result<Option<BTreeMap<String, FlatNode>>, MetaError> {
-    #[derive(Deserialize)]
-    struct Consolidated {
-        #[serde(default)]
-        kind: Option<String>,
-        metadata: BTreeMap<String, Value>,
-    }
-
     let Some(field) = group.additional_fields.get("consolidated_metadata") else {
         return Ok(None);
     };
-    let consolidated: Consolidated =
-        serde_json::from_value(field.as_value().clone()).map_err(|source| MetaError::Json {
-            location: store.describe("zarr.json#consolidated_metadata"),
-            source,
-        })?;
-    if consolidated.kind.as_deref().is_some_and(|k| k != "inline") {
+    let consolidated = field.as_value();
+    if consolidated.get("kind").and_then(Value::as_str) != Some("inline") {
         return Ok(None);
     }
+    let Some(metadata) = consolidated.get("metadata").and_then(Value::as_object) else {
+        return Ok(None);
+    };
 
     let mut nodes: BTreeMap<String, FlatNode> = BTreeMap::new();
     nodes.insert(
@@ -346,11 +358,11 @@ fn v3_consolidated_nodes(
             attrs: group.attributes.clone(),
         },
     );
-    for (path, value) in consolidated.metadata {
+    for (path, value) in metadata {
         let path = path.trim_matches('/').to_owned();
         let location = store.describe(&format!("zarr.json#consolidated_metadata/{path}"));
         let node: NodeMetadataV3 =
-            serde_json::from_value(value).map_err(|source| MetaError::Json {
+            serde_json::from_value(value.clone()).map_err(|source| MetaError::Json {
                 location: location.clone(),
                 source,
             })?;
@@ -787,6 +799,16 @@ struct ConsolidatedMetadata {
     metadata: BTreeMap<String, Value>,
 }
 
+/// Splits a `.zmetadata` key into the node's relative path and the per-node
+/// file it names: `g/arr/.zarray` → `("g/arr", ".zarray")`, and a root-level
+/// `.zgroup` → `("", ".zgroup")`.
+fn split_consolidated_key(key: &str) -> (&str, &str) {
+    match key.rsplit_once('/') {
+        Some((node_path, file)) => (node_path, file),
+        None => ("", key),
+    }
+}
+
 fn summarize_v2_consolidated(
     bytes: &[u8],
     store: &dyn ZarrStore,
@@ -795,27 +817,34 @@ fn summarize_v2_consolidated(
     let consolidated: ConsolidatedMetadata = parse_json(bytes, store, ".zmetadata")?;
     let location = store.describe(".zmetadata");
 
-    let mut group_paths: HashSet<String> = HashSet::new();
-    let mut arrays: HashMap<String, ArrayMetadataV2> = HashMap::new();
-    let mut attrs: HashMap<String, serde_json::Map<String, Value>> = HashMap::new();
+    let mut group_paths: BTreeSet<String> = BTreeSet::new();
+    let mut arrays: BTreeMap<String, ArrayMetadataV2> = BTreeMap::new();
+    let mut attrs: BTreeMap<String, serde_json::Map<String, Value>> = BTreeMap::new();
 
     for (key, value) in consolidated.metadata {
-        if let Some(node_path) = node_path_for(&key, ".zgroup") {
-            group_paths.insert(node_path.to_owned());
-        } else if let Some(node_path) = node_path_for(&key, ".zarray") {
-            let array: ArrayMetadataV2 =
-                serde_json::from_value(value).map_err(|source| MetaError::Json {
-                    location: location.clone(),
-                    source,
-                })?;
-            arrays.insert(node_path.to_owned(), array);
-        } else if let Some(node_path) = node_path_for(&key, ".zattrs")
-            && let Some(map) = value.as_object()
-        {
-            attrs.insert(node_path.to_owned(), map.clone());
+        let (node_path, file) = split_consolidated_key(&key);
+        match file {
+            ".zgroup" => {
+                group_paths.insert(node_path.to_owned());
+            }
+            ".zarray" => {
+                let array: ArrayMetadataV2 =
+                    serde_json::from_value(value).map_err(|source| MetaError::Json {
+                        location: location.clone(),
+                        source,
+                    })?;
+                arrays.insert(node_path.to_owned(), array);
+            }
+            ".zattrs" => {
+                if let Some(map) = value.as_object() {
+                    attrs.insert(node_path.to_owned(), map.clone());
+                }
+            }
+            // `.zmetadata` itself (nested, shouldn't occur) and any other
+            // key is ignored: only the three per-node file kinds above are
+            // meaningful.
+            _ => {}
         }
-        // `.zmetadata` itself (nested, shouldn't occur) and any other key is
-        // ignored: only the three per-node file kinds above are meaningful.
     }
 
     let empty = serde_json::Map::new();
@@ -861,23 +890,13 @@ fn summarize_v2_consolidated(
     Ok(build_tree_from_flat(&nodes))
 }
 
-/// If `key` is `"{node_path}/{doc}"` or just `"{doc}"` (the root), returns
-/// `node_path` (`""` for the root).
-fn node_path_for<'a>(key: &'a str, doc: &str) -> Option<&'a str> {
-    if key == doc {
-        Some("")
-    } else {
-        key.strip_suffix(doc)?.strip_suffix('/')
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
     use std::num::NonZeroU64;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use tempfile::TempDir;
 
     use super::store::MemoryStore;
     use super::*;
@@ -887,24 +906,16 @@ mod tests {
     };
 
     /// Creates a fresh, empty temporary directory named `name` (e.g.
-    /// `"root.zarr"`) for a test store to write into, nested under a
-    /// process- and call-unique parent so parallel test runs never collide
-    /// and so `name` alone (not some disambiguating suffix) is what
-    /// `Path::file_stem` sees.
-    fn temp_store_dir(name: &str) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock is after the epoch")
-            .as_nanos();
-        let parent = std::env::temp_dir().join(format!(
-            "gridlook-meta-zarr-test-{}-{nanos}-{n}",
-            std::process::id()
-        ));
-        let dir = parent.join(name);
+    /// `"root.zarr"`) for a test store to write into, nested inside a
+    /// unique [`TempDir`] so `name` alone (not some disambiguating suffix)
+    /// is what `Path::file_stem` sees. Keep the returned guard alive for
+    /// the duration of the test: dropping it deletes the tree, panicking
+    /// assertions included.
+    fn temp_store_dir(name: &str) -> (TempDir, PathBuf) {
+        let parent = tempfile::tempdir().expect("create temp dir");
+        let dir = parent.path().join(name);
         fs::create_dir_all(&dir).expect("create temp store dir");
-        dir
+        (parent, dir)
     }
 
     /// Minimal, valid Zarr v2 array metadata for a single 1-D array of
@@ -997,11 +1008,15 @@ mod tests {
     }
 
     #[test]
-    fn node_path_for_handles_root_and_nested_keys() {
-        assert_eq!(node_path_for(".zgroup", ".zgroup"), Some(""));
-        assert_eq!(node_path_for("g/arr/.zarray", ".zarray"), Some("g/arr"));
-        assert_eq!(node_path_for("g/.zattrs", ".zarray"), None);
-        assert_eq!(node_path_for("x.zarray", ".zarray"), None);
+    fn split_consolidated_key_separates_node_path_from_file() {
+        assert_eq!(split_consolidated_key(".zgroup"), ("", ".zgroup"));
+        assert_eq!(split_consolidated_key("g/.zattrs"), ("g", ".zattrs"));
+        assert_eq!(
+            split_consolidated_key("g/arr/.zarray"),
+            ("g/arr", ".zarray")
+        );
+        // Not a per-node file name: falls through to the ignored branch.
+        assert_eq!(split_consolidated_key("foo.zgroup"), ("", "foo.zgroup"));
     }
 
     #[test]
@@ -1050,7 +1065,7 @@ mod tests {
 
     #[test]
     fn root_is_array_v2_uses_directory_stem_as_var_name() {
-        let dir = temp_store_dir("root.zarr");
+        let (_tmp, dir) = temp_store_dir("root.zarr");
         let array = tiny_v2_array();
         fs::write(
             dir.join(".zarray"),
@@ -1066,13 +1081,11 @@ mod tests {
             .map(|v| v.name.as_str())
             .collect();
         assert_eq!(names, vec!["root"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[test]
     fn root_is_array_v3_uses_directory_stem_as_var_name() {
-        let dir = temp_store_dir("mydata.zarr");
+        let (_tmp, dir) = temp_store_dir("mydata.zarr");
         fs::write(dir.join("zarr.json"), tiny_v3_array_json(&["x"], "")).expect("write zarr.json");
 
         let summary = summarize_zarr(&dir).expect("summarize root-is-array v3 store");
@@ -1096,8 +1109,6 @@ mod tests {
             "root group must not duplicate the array's attrs, got {:?}",
             summary.root.attrs
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// A symlink loop inside a group (`loop -> .`) makes `loop/zarr.json`
@@ -1108,7 +1119,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn v3_symlink_loop_is_reported_instead_of_walked() {
-        let dir = temp_store_dir("loop_v3.zarr");
+        let (_tmp, dir) = temp_store_dir("loop_v3.zarr");
         fs::write(
             dir.join("zarr.json"),
             r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#,
@@ -1125,14 +1136,12 @@ mod tests {
             err.to_string().contains("symlink loop"),
             "error should hint at the cause, got: {err}"
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     #[cfg(unix)]
     #[test]
     fn v2_symlink_loop_is_reported_instead_of_walked() {
-        let dir = temp_store_dir("loop_v2.zarr");
+        let (_tmp, dir) = temp_store_dir("loop_v2.zarr");
         fs::write(dir.join(".zgroup"), r#"{"zarr_format":2}"#).expect("write root .zgroup");
         std::os::unix::fs::symlink(".", dir.join("loop")).expect("create symlink loop");
 
@@ -1141,8 +1150,6 @@ mod tests {
             matches!(err, MetaError::Invalid { .. }),
             "expected MetaError::Invalid, got {err:?}"
         );
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// A symlink to a *sibling* group is not a loop: the target is walked
@@ -1151,7 +1158,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn v3_symlink_to_sibling_group_is_not_a_loop() {
-        let dir = temp_store_dir("sibling_v3.zarr");
+        let (_tmp, dir) = temp_store_dir("sibling_v3.zarr");
         let group = r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#;
         fs::write(dir.join("zarr.json"), group).expect("write root zarr.json");
         fs::create_dir(dir.join("a")).expect("create a");
@@ -1166,8 +1173,6 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(names, vec!["a", "b"]);
-
-        let _ = fs::remove_dir_all(dir.parent().expect("has a parent"));
     }
 
     /// A store nested deeper than the cap (here: a chain of groups in an
@@ -1274,6 +1279,93 @@ mod tests {
         let codec_names: Vec<&str> = storage.codecs.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(codec_names, vec!["bytes", "zstd"]);
         assert!(matches!(storage.fill_value, Some(AttrValue::Float32(f)) if f.is_nan()));
+    }
+
+    /// On disk, the consolidated map is the source of truth when present: a
+    /// store whose only file is the root `zarr.json` still yields the full
+    /// hierarchy described inside it, and nothing is walked.
+    #[test]
+    fn v3_consolidated_metadata_is_read_instead_of_walking() {
+        let (_tmp, dir) = temp_store_dir("consolidated.zarr");
+        let array: Value = serde_json::from_str(&tiny_v3_array_json(&["x"], "")).unwrap();
+        let root = serde_json::json!({
+            "zarr_format": 3,
+            "node_type": "group",
+            "attributes": {"title": "root"},
+            "consolidated_metadata": {
+                "kind": "inline",
+                "must_understand": false,
+                "metadata": {
+                    "x": array,
+                    "g": {"zarr_format": 3, "node_type": "group",
+                          "attributes": {"level": 1},
+                          "consolidated_metadata": {"kind": "inline",
+                                                    "must_understand": false,
+                                                    "metadata": {}}},
+                    "g/y": array,
+                }
+            }
+        });
+        fs::write(dir.join("zarr.json"), root.to_string()).expect("write root zarr.json");
+
+        let summary = summarize_zarr(&dir).expect("summarize consolidated v3 store");
+        assert_eq!(summary.format, SourceFormat::ZarrV3);
+        assert_eq!(
+            summary.root.attrs,
+            vec![("title".to_owned(), AttrValue::Text("root".to_owned()))]
+        );
+        assert_eq!(summary.root.var_order, vec!["x"]);
+        assert_eq!(summary.root.children.len(), 1);
+        let g = &summary.root.children[0];
+        assert_eq!(g.name, "g");
+        assert_eq!(g.attrs, vec![("level".to_owned(), AttrValue::Int(1))]);
+        assert_eq!(g.var_order, vec!["y"]);
+    }
+
+    /// An unrecognized `consolidated_metadata` shape (a foreign `kind`, or no
+    /// `metadata` object) falls back to walking.
+    #[test]
+    fn v3_unrecognized_consolidated_kind_falls_back_to_walking() {
+        let group = r#"{"zarr_format":3,"node_type":"group","attributes":{}}"#;
+        for consolidated in [
+            serde_json::json!({"kind": "elsewhere", "must_understand": false}),
+            serde_json::json!({"kind": "inline", "must_understand": false}),
+            serde_json::json!(null),
+        ] {
+            let root = serde_json::json!({
+                "zarr_format": 3, "node_type": "group", "attributes": {},
+                "consolidated_metadata": consolidated
+            });
+            let mut store = MemoryStore::new("mem://odd_consolidated.zarr");
+            store.insert("zarr.json", root.to_string());
+            store.insert("walked/zarr.json", group);
+
+            let summary =
+                summarize_zarr_store(&store, &SummarizeOptions::default()).expect("summarize");
+            let children: Vec<&str> = summary
+                .root
+                .children
+                .iter()
+                .map(|c| c.name.as_str())
+                .collect();
+            assert_eq!(children, vec!["walked"], "{consolidated}");
+        }
+    }
+
+    /// A corrupt document inside a consolidated map is an error, not a
+    /// silent fallback to walking.
+    #[test]
+    fn v3_corrupt_consolidated_document_is_an_error() {
+        let root = serde_json::json!({
+            "zarr_format": 3, "node_type": "group", "attributes": {},
+            "consolidated_metadata": {"kind": "inline", "metadata": {"x": {"node_type": "array"}}}
+        });
+        let mut store = MemoryStore::new("mem://corrupt.zarr");
+        store.insert("zarr.json", root.to_string());
+        let err = summarize_zarr_store(&store, &SummarizeOptions::default())
+            .expect_err("a corrupt consolidated document fails");
+        assert!(matches!(err, MetaError::Json { .. }), "{err:?}");
+        assert!(err.to_string().contains("consolidated_metadata/x"), "{err}");
     }
 
     #[test]

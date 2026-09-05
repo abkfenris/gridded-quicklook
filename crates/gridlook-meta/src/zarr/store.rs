@@ -138,7 +138,7 @@ impl ZarrStore for FsStore {
             let entry = entry.map_err(io_err)?;
             let name = entry.file_name().to_string_lossy().into_owned();
             let child = entry.path();
-            if !child.is_dir() {
+            if !entry_is_dir(&entry, &child) {
                 listing.files.push(name);
                 continue;
             }
@@ -165,6 +165,19 @@ impl ZarrStore for FsStore {
             .map(|stem| stem.to_string_lossy().into_owned())
             .filter(|stem| !stem.is_empty())
             .unwrap_or_else(|| "array".to_owned())
+    }
+}
+
+/// Is this directory entry a directory (following a symlink if it is one)?
+/// `DirEntry::file_type` is free on most filesystems (it comes back with the
+/// directory listing), so only symlinks pay for the extra `stat` that
+/// `Path::is_dir` always costs.
+fn entry_is_dir(entry: &fs::DirEntry, path: &Path) -> bool {
+    match entry.file_type() {
+        Ok(kind) if kind.is_dir() => true,
+        Ok(kind) if kind.is_symlink() => path.is_dir(),
+        Ok(_) => false,
+        Err(_) => path.is_dir(),
     }
 }
 
@@ -238,21 +251,20 @@ impl ZarrStore for MemoryStore {
 mod tests {
     use super::*;
 
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "gridlook-meta-store-test-{}-{name}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("create temp dir");
-        dir
+    /// A fresh directory named `name` inside a unique [`TempDir`]. Keep the
+    /// guard alive for the test: dropping it deletes the tree.
+    fn temp_dir(name: &str) -> (tempfile::TempDir, PathBuf) {
+        let parent = tempfile::tempdir().expect("create temp dir");
+        let dir = parent.path().join(name);
+        fs::create_dir_all(&dir).expect("create temp store dir");
+        (parent, dir)
     }
 
     /// `loop -> .` resolves to the listed directory itself: a loop.
     #[cfg(unix)]
     #[test]
     fn fs_store_reports_symlink_loops() {
-        let dir = temp_dir("loop.zarr");
+        let (_tmp, dir) = temp_dir("loop.zarr");
         std::os::unix::fs::symlink(".", dir.join("loop")).expect("create symlink loop");
         let err = FsStore::new(&dir)
             .list_dir("")
@@ -268,21 +280,23 @@ mod tests {
             .list_dir("g")
             .expect_err("an upward symlink is a loop");
         assert!(err.to_string().contains("symlink loop"), "{err}");
-        let _ = fs::remove_dir_all(&dir);
     }
 
-    /// A symlink to a sibling directory is finite and is listed normally.
+    /// A symlink to a sibling directory is finite and is listed normally;
+    /// a symlink to a file is a file.
     #[cfg(unix)]
     #[test]
     fn fs_store_lists_sibling_symlinks() {
-        let dir = temp_dir("sibling.zarr");
+        let (_tmp, dir) = temp_dir("sibling.zarr");
         fs::create_dir(dir.join("a")).unwrap();
+        fs::write(dir.join("zarr.json"), "{}").unwrap();
         std::os::unix::fs::symlink("a", dir.join("b")).expect("symlink b -> a");
+        std::os::unix::fs::symlink("zarr.json", dir.join("alias.json")).expect("file symlink");
         let listing = FsStore::new(&dir)
             .list_dir("")
             .expect("sibling symlink lists");
         assert_eq!(listing.dirs, vec!["a", "b"]);
-        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(listing.files, vec!["alias.json", "zarr.json"]);
     }
 
     struct Located(&'static str);

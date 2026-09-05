@@ -9,6 +9,7 @@
 //! their own (e.g. `g` when only `g/arr` is listed).
 
 use std::collections::BTreeMap;
+use std::ops::Bound;
 
 use serde_json::Value;
 
@@ -27,10 +28,26 @@ pub(crate) enum FlatNode {
     Array(Box<VarSummary>),
 }
 
+/// Entries of `map` whose key lies strictly under `prefix` (starts with it
+/// and is longer). Sorted maps keep every key sharing a prefix contiguous,
+/// so this is a range scan that stops at the first key past the block
+/// rather than a filter over the whole map.
+pub(crate) fn keys_under<'a, V>(
+    map: &'a BTreeMap<String, V>,
+    prefix: &'a str,
+) -> impl Iterator<Item = (&'a String, &'a V)> + 'a {
+    map.range::<str, _>((Bound::Excluded(prefix), Bound::Unbounded))
+        .take_while(move |(key, _)| key.starts_with(prefix))
+}
+
 /// Builds the root [`GroupSummary`] from `nodes`. A missing `""` entry is
 /// treated as an attribute-less root group; an `Array` at `""` is a
 /// root-is-array store, which callers handle before getting here (it is
 /// treated as an empty root group otherwise).
+///
+/// Each group finds its children with a range scan ([`keys_under`]) over
+/// the sorted map, so the whole build costs O(N · depth) key comparisons
+/// instead of the O(N · groups) of filtering the entire map once per group.
 pub(crate) fn build_tree_from_flat(nodes: &BTreeMap<String, FlatNode>) -> GroupSummary {
     let empty = serde_json::Map::new();
     let root_attrs = match nodes.get("") {
@@ -59,13 +76,8 @@ fn build_group(
     // no entry; only direct-child arrays are excluded, since they are
     // variables of this group rather than subgroups.
     let mut child_groups: BTreeMap<String, String> = BTreeMap::new();
-    for (path, node) in nodes {
-        let Some(rest) = path.strip_prefix(&prefix) else {
-            continue;
-        };
-        if rest.is_empty() {
-            continue;
-        }
+    for (path, node) in keys_under(nodes, &prefix) {
+        let rest = &path[prefix.len()..];
         match rest.split_once('/') {
             None => match node {
                 FlatNode::Array(var) => vars.push((**var).clone()),
@@ -144,6 +156,52 @@ mod tests {
         assert_eq!(sub.name, "sub");
         assert_eq!(sub.attrs.len(), 1);
         assert_eq!(sub.data_vars[0].name, "deep");
+    }
+
+    #[test]
+    fn keys_under_yields_only_the_prefix_block() {
+        let map: BTreeMap<String, ()> = ["", "a", "a-", "a/b", "a/b/c", "a/x", "ab", "b"]
+            .into_iter()
+            .map(|k| (k.to_owned(), ()))
+            .collect();
+        let under_a: Vec<&str> = keys_under(&map, "a/").map(|(k, _)| k.as_str()).collect();
+        assert_eq!(under_a, vec!["a/b", "a/b/c", "a/x"]);
+        // The root prefix covers everything except the root itself.
+        let under_root: Vec<&str> = keys_under(&map, "").map(|(k, _)| k.as_str()).collect();
+        assert_eq!(
+            under_root,
+            vec!["a", "a-", "a/b", "a/b/c", "a/x", "ab", "b"]
+        );
+        assert_eq!(keys_under(&map, "zzz/").count(), 0);
+    }
+
+    /// Keys that share a byte prefix with a group's path (`ab` next to `a/`)
+    /// belong to the parent, not the group.
+    #[test]
+    fn sibling_names_sharing_a_prefix_are_not_children() {
+        let mut nodes = BTreeMap::new();
+        nodes.insert(String::new(), group(&[]));
+        nodes.insert("a".to_owned(), group(&[]));
+        nodes.insert("a/b".to_owned(), group(&[]));
+        nodes.insert(
+            "a/b/deep".to_owned(),
+            FlatNode::Array(Box::new(var("deep"))),
+        );
+        nodes.insert("a/x".to_owned(), FlatNode::Array(Box::new(var("x"))));
+        nodes.insert("ab".to_owned(), FlatNode::Array(Box::new(var("ab"))));
+        nodes.insert("c".to_owned(), FlatNode::Array(Box::new(var("c"))));
+
+        let root = build_tree_from_flat(&nodes);
+        assert_eq!(root.var_order, vec!["ab", "c"]);
+        assert_eq!(root.children.len(), 1);
+        let a = &root.children[0];
+        assert_eq!(a.name, "a");
+        assert_eq!(a.var_order, vec!["x"]);
+        assert_eq!(a.children.len(), 1);
+        let b = &a.children[0];
+        assert_eq!(b.name, "b");
+        assert_eq!(b.var_order, vec!["deep"]);
+        assert!(b.children.is_empty());
     }
 
     #[test]

@@ -87,16 +87,18 @@ fn render_html_inner(path: *const c_char) -> String {
     };
     let path = Path::new(path_str);
 
-    // Files are routed by extension and directories by their contents (see
-    // `gridlook_meta::dispatch`); anything unclaimed becomes a card that
-    // says what kind of thing was expected.
+    // Files are routed by their signature, then extension, and directories
+    // by their contents (see `gridlook_meta::dispatch`); anything unclaimed
+    // becomes a card that says what kind of thing was expected.
     let Some(kind) = detect_local_kind(path) else {
         return if path.is_dir() {
             error_card("Unsupported folder: not a Zarr store or an Icechunk repository.")
         } else {
             match path.extension().and_then(|e| e.to_str()) {
                 Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
-                None => error_card("Unsupported file: no recognizable file extension."),
+                None => error_card(
+                    "Unsupported file: not a netCDF or HDF5 file, and no recognizable file extension.",
+                ),
             }
         };
     };
@@ -148,10 +150,16 @@ fn error_card(message: &str) -> String {
 <meta charset=\"utf-8\">\
 <title>Preview unavailable</title>\
 <style>\
+:root {{ color-scheme: light dark; }}\
 body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 24px; color: #1a1a1a; background: #fff; }}\
 .gq-error {{ border: solid 1px #e0b4b4; background: #fdf2f2; border-radius: 6px; padding: 16px 20px; }}\
 .gq-error h1 {{ margin: 0 0 8px 0; font-size: 1.1em; color: #a33; }}\
 .gq-error p {{ margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; white-space: pre-wrap; word-break: break-word; }}\
+@media (prefers-color-scheme: dark) {{\
+body {{ color: #f0f0f0; background: #111; }}\
+.gq-error {{ border-color: #7a3b3b; background: #2a1717; }}\
+.gq-error h1 {{ color: #ff8a80; }}\
+}}\
 </style>\
 </head>\
 <body>\
@@ -233,8 +241,8 @@ mod tests {
     /// root markers win over the icechunk directory-layout sniff.
     #[test]
     fn zarr_store_with_icechunk_like_children_routes_to_zarr() {
-        let dir = std::env::temp_dir().join("gridlook_ffi_dispatch_test.zarr");
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let dir = tmp.path().join("gridlook_ffi_dispatch_test.zarr");
         for child in ["snapshots", "transactions"] {
             std::fs::create_dir_all(dir.join(child)).expect("create child dirs");
         }
@@ -245,7 +253,6 @@ mod tests {
         .expect("write root zarr.json");
 
         let html = render(dir.to_str().expect("temp path is UTF-8"));
-        let _ = std::fs::remove_dir_all(&dir);
         assert!(
             !html.contains("gq-error"),
             "a Zarr store with icechunk-like child names must not error, got: {html}"
@@ -271,6 +278,49 @@ mod tests {
         assert!(
             html.contains("update global attrs"),
             "expected the version-history card to list the latest commit message"
+        );
+    }
+
+    /// Copies `fixture` into a fresh temp dir under `new_name` and renders
+    /// it, so the routing tests can exercise the signature sniff with
+    /// extensions the extension list has never heard of.
+    fn render_renamed_fixture(fixture: &str, new_name: &str) -> String {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let copy = tmp.path().join(new_name);
+        std::fs::copy(fixture_path(fixture), &copy).expect("copy fixture");
+        render(copy.to_str().expect("temp path is UTF-8"))
+    }
+
+    #[test]
+    fn netcdf4_file_with_unknown_extension_is_routed_by_its_hdf5_signature() {
+        let html = render_renamed_fixture("simple.nc", "renamed.dat");
+        assert!(
+            html.contains("xr-wrap"),
+            "expected a rendered preview, got: {html}"
+        );
+        assert!(!html.contains("gq-error"));
+    }
+
+    #[test]
+    fn classic_netcdf_file_with_no_extension_is_routed_by_its_cdf_signature() {
+        let html = render_renamed_fixture("simple_classic.nc", "no_extension");
+        assert!(
+            html.contains("xr-wrap"),
+            "expected a rendered preview, got: {html}"
+        );
+        assert!(!html.contains("gq-error"));
+    }
+
+    /// A known extension still reaches libnetcdf even when the signature
+    /// doesn't match, so the user sees libnetcdf's diagnostic rather than
+    /// a generic "unsupported file type" card.
+    #[test]
+    fn netcdf_extension_without_a_signature_still_reaches_the_reader() {
+        let html = render_renamed_fixture("../generate.py", "not_really.nc");
+        assert!(html.contains("gq-error"));
+        assert!(
+            html.contains("failed to open"),
+            "expected libnetcdf's open error, got: {html}"
         );
     }
 
