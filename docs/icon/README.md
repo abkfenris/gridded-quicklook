@@ -46,7 +46,7 @@ headless Chromium via Playwright, so it needs node and a playwright install
 on the module path (`npx --yes playwright@1.56 install chromium` once). It
 fills every macOS app-icon slot, 16 to 512 pt at 1x and 2x, using the
 small artwork for 16 and 32 pt and the full artwork from 128 pt up, and
-writes the badge image set at 1x and 2x. The PNGs are committed, so this
+writes the badge image set at 1x and 2x. The PNG files are committed, so this
 only needs re-running after the sources change.
 
 The design history (the other candidates, the comparison sheets) lives in
