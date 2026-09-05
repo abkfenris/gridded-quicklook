@@ -1,10 +1,10 @@
 # App icon candidates
 
 Design options for the GridLook app icon
-([#14](https://github.com/abkfenris/gridded-quicklook/issues/14)). Nothing
-here is wired into the app yet; this directory exists so the options can be
-compared side by side, tweaked, and one of them promoted to
-`apple/App/Assets.xcassets/AppIcon.appiconset/` once picked.
+([#14](https://github.com/abkfenris/gridded-quicklook/issues/14)), and the
+sources of the one that was picked: A7 is the app icon, generated into
+`apple/App/Assets.xcassets/AppIcon.appiconset/` from the SVGs here (see
+"The app icon" below). The rest are kept for comparison.
 
 ![All candidates at 128, 64, 32 and 16 px on light and dark grounds](comparison.png)
 
@@ -79,15 +79,18 @@ npx --yes playwright@1.56 install chromium   # once
 node docs/icon-options/render.mjs
 ```
 
-## Promoting one to the app icon
+## The app icon
 
-Once an option is chosen (per the plan in the issue):
+A7 (`a7-warm-edge`) is the app icon. `appiconset.mjs` renders it into
+every macOS slot of `apple/App/Assets.xcassets/AppIcon.appiconset/` and
+writes the catalog's `Contents.json`, using the `-small` artwork for the
+16 and 32 pt slots and the full artwork from 128 pt up. `mise run icons`
+runs `generate.py` and then that script; the resulting PNGs are committed,
+so it only needs re-running after the sources change. `apple/project.yml`
+sets `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon`, and the catalog is
+picked up as a resource because it sits under the `App` source path.
 
-1. Copy `masters/<option>.png` to
-   `apple/App/Assets.xcassets/AppIcon.appiconset/AppIcon.png` with a
-   `Contents.json` using Xcode's single-size (1024 `mac` universal) app icon.
-2. Add `Assets.xcassets` to the GridLook target's `sources` in
-   `apple/project.yml` and set `ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon`.
-3. Optionally, derive `.zarr` / `.icechunk` document icons from the same
-   artwork and reference them with `UTTypeIconFile` on the exported UTIs in
-   `apple/App/Info.plist`.
+Still open: `.zarr` / `.icechunk` document icons derived from the same
+artwork, referenced with `UTTypeIconFile` on the exported UTIs in
+`apple/App/Info.plist`. `a7-warm-edge-bare.svg` is the starting point for
+those.

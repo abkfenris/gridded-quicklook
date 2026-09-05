@@ -66,6 +66,7 @@ generation are usable without Xcode.
 | `mise run hooks`              | `prek run --all-files`                                  |
 | `mise run fixtures`           | Generate `fixtures/data` + `fixtures/reference` (untracked) |
 | `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `gridlook-html`       |
+| `mise run icons`              | Regenerate the app icon from `docs/icon-options` (needs node + Playwright) |
 | `mise run xcodeproj`          | Generate `apple/GridLook.xcodeproj`             |
 | `mise run build-appex`        | `xcodebuild` the extension (needs full Xcode)           |
 | `mise run install-dev`        | `scripts/install-dev.sh`                                |
