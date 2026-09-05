@@ -22,6 +22,13 @@
 # CoreFoundation` (see OTHER_LDFLAGS below); zstd, flatbuffers and the rest
 # of icechunk's native code are absorbed into the staticlib as before.
 #
+# Icon note: App/Assets.xcassets is generated from the SVG sources in
+# docs/icon (`mise run icons`): AppIcon.appiconset holds one PNG per macOS
+# slot, with reduced artwork in the 16 and 32 pt slots, and
+# DocumentBadge.imageset is the badge the system composes onto the .zarr /
+# .icechunk document icons (UTTypeIcons in App/Info.plist). xcodegen picks
+# the catalog up as a resource because it sits under the App source path.
+#
 # UTI note: the type declarations themselves live in the two Info.plist
 # files referenced below (App/Info.plist declares them, PreviewExtension/
 # Info.plist matches against them in QLSupportedContentTypes), not in this
@@ -62,7 +69,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.gridlook.quicklook
         PRODUCT_NAME: GridLook
         INFOPLIST_FILE: App/Info.plist
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     entitlements:
       path: App/App.entitlements
       properties:
