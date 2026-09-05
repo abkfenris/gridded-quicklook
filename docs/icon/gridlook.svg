@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <title>GridLook icon, option A7: data cube with loupe</title>
+  <title>GridLook icon</title>
   <defs>
-    <clipPath id="icon-shape"><rect x="100.0" y="100.0" width="824" height="824" rx="185.4"/></clipPath>
     <filter id="dock-shadow" x="-10%" y="-10%" width="120%" height="130%">
       <feGaussianBlur in="SourceAlpha" stdDeviation="12"/>
       <feOffset dy="10" result="b"/>
@@ -43,10 +42,10 @@
     <line x1="500.0" y1="560.0" x2="500.0" y2="890.0" stroke="#1B3A5C" stroke-width="22.0" stroke-linecap="round"/>
   </g>
   <g id="layer-foreground">
-    <circle cx="690.0883832488648" cy="329.0" r="118.8" fill="rgba(255,255,255,0.18)"/>
-    <line x1="786.9" y1="425.8" x2="886.1" y2="525.0" stroke="#FFFFFF" stroke-width="63.005" stroke-linecap="round"/>
-    <circle cx="690.0883832488648" cy="329.0" r="118.8" fill="none" stroke="#FFFFFF" stroke-width="50.3"/>
-    <line x1="786.9" y1="425.8" x2="886.1" y2="525.0" stroke="#0F2540" stroke-width="49.005" stroke-linecap="round"/>
-    <circle cx="690.0883832488648" cy="329.0" r="118.8" fill="none" stroke="#0F2540" stroke-width="36.3"/>
+    <circle cx="690.1" cy="329.0" r="118.8" fill="rgba(255,255,255,0.18)"/>
+    <line x1="786.9" y1="425.8" x2="886.1" y2="525.0" stroke="#FFFFFF" stroke-width="63.0" stroke-linecap="round"/>
+    <circle cx="690.1" cy="329.0" r="118.8" fill="none" stroke="#FFFFFF" stroke-width="50.3"/>
+    <line x1="786.9" y1="425.8" x2="886.1" y2="525.0" stroke="#0F2540" stroke-width="49.0" stroke-linecap="round"/>
+    <circle cx="690.1" cy="329.0" r="118.8" fill="none" stroke="#0F2540" stroke-width="36.3"/>
   </g>
 </svg>

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Build apple/App/Assets.xcassets/AppIcon.appiconset from the chosen icon
-// candidate: renders the SVGs into every macOS app-icon slot and writes the
-// asset catalog's Contents.json files. The 16 and 32 pt slots take the
-// reduced "-small" artwork when the option ships one; 128 pt and up take
-// the full artwork. Run after generate.py, with playwright on the module
-// path (see render.mjs):
+// Build apple/App/Assets.xcassets/AppIcon.appiconset: renders the icon SVGs
+// into every macOS app-icon slot and writes the asset catalog's
+// Contents.json files. The 16 and 32 pt slots take the reduced "-small"
+// artwork; 128 pt and up take the full artwork. Run after generate.py, with
+// playwright on the module path (`mise run icons` does both):
 //
-//   node docs/icon-options/appiconset.mjs [option]     # default a7-warm-edge
+//   npx --yes playwright@1.56 install chromium   # once
+//   node docs/icon/appiconset.mjs
 
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,7 +14,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const option = process.argv[2] ?? "a7-warm-edge";
+const option = process.argv[2] ?? "gridlook";
 const catalog = join(here, "..", "..", "apple", "App", "Assets.xcassets");
 const set = join(catalog, "AppIcon.appiconset");
 mkdirSync(set, { recursive: true });
