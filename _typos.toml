@@ -1,2 +1,7 @@
 [files]
 extend-exclude = ["fixtures/*"]
+
+[default.extend-words]
+# ecCodes spells the isobaric level type "isobaricInhPa" (hPa = hectopascal);
+# typos otherwise "corrects" Inh -> In.
+inh = "inh"
