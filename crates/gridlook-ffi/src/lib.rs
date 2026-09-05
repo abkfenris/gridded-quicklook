@@ -11,6 +11,8 @@
 //! string to display".
 
 use std::ffi::{CStr, CString};
+use std::fs;
+use std::io::{Read, Seek, SeekFrom};
 use std::os::raw::c_char;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
@@ -27,9 +29,15 @@ use gridlook_meta::{
 /// never itself trip that failure mode.
 const FALLBACK_ERROR_HTML: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Preview unavailable</title></head><body><div class=\"gq-error\"><h1>Preview unavailable</h1><p>An internal error occurred while rendering this preview.</p></div></body></html>";
 
-/// File extensions (lowercased, without the leading dot) that we currently
-/// route through `gridlook-meta`'s NetCDF/HDF5 reader.
+/// File extensions (lowercased, without the leading dot) routed through
+/// `gridlook-meta`'s NetCDF/HDF5 reader even when the file's signature
+/// isn't recognized (see [`has_netcdf_signature`]), so that a truncated or
+/// otherwise odd `.nc` still reaches libnetcdf and gets its diagnostic
+/// rather than a generic "unsupported file type" card.
 const NETCDF_LIKE_EXTENSIONS: &[&str] = &["nc", "nc4", "cdf", "h5", "hdf5", "he5"];
+
+/// HDF5 file signature (the start of the superblock).
+const HDF5_MAGIC: &[u8; 8] = b"\x89HDF\r\n\x1a\n";
 
 /// Root-level entries that mark a directory as a Zarr store: a v3 node
 /// document, a v2 group marker, or v2 consolidated metadata. Checked with a
@@ -131,7 +139,7 @@ fn render_html_inner(path: *const c_char) -> String {
     let file_size = if path.is_dir() {
         None
     } else {
-        std::fs::metadata(path).ok().map(|m| m.len())
+        fs::metadata(path).ok().map(|m| m.len())
     };
     let source_name = path
         .file_name()
@@ -141,18 +149,65 @@ fn render_html_inner(path: *const c_char) -> String {
     render_page(&summary, source_name, file_size)
 }
 
-/// Routes a regular file by extension. `None` means "no reader claims this
-/// extension", which the caller turns into an "unsupported file type" card.
+/// Routes a regular file by what it contains first (its signature), then
+/// by extension. `None` means "no reader claims this file", which the
+/// caller turns into an "unsupported file type" card.
+///
+/// Sniffing means anything Quick Look hands over previews regardless of
+/// how its UTI happened to match, and the extension list stops having to
+/// mirror the `UTTypeTagSpecification`s in the app's Info.plist.
 fn summarize_file(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
     let extension = path
         .extension()
         .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)?;
+        .map(str::to_ascii_lowercase);
+    let netcdf_like_extension = extension
+        .as_deref()
+        .is_some_and(|ext| NETCDF_LIKE_EXTENSIONS.contains(&ext));
 
-    if NETCDF_LIKE_EXTENSIONS.contains(&extension.as_str()) {
+    if has_netcdf_signature(path) || netcdf_like_extension {
         return Some(summarize_netcdf(path));
     }
     None
+}
+
+/// Does the file start like something libnetcdf can open?
+///
+/// - Classic netCDF: `CDF` followed by a version byte (1 = classic, 2 =
+///   64-bit offset, 5 = CDF5) at offset 0.
+/// - netCDF-4 / HDF5: the HDF5 superblock signature at offset 0, or, for a
+///   file with a user block, at 512 · 2ⁿ. libhdf5 searches those offsets
+///   until it runs off the end of the file; a handful of doublings covers
+///   every user block size seen in practice, and each probe is one small
+///   `read`.
+///
+/// Any I/O trouble simply reads as "no signature": the extension fallback
+/// and, ultimately, libnetcdf's own error handling take it from there.
+fn has_netcdf_signature(path: &Path) -> bool {
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 8];
+
+    if read_at(&mut file, 0, &mut magic)
+        && (matches!(&magic[..4], b"CDF\x01" | b"CDF\x02" | b"CDF\x05") || &magic == HDF5_MAGIC)
+    {
+        return true;
+    }
+
+    let mut offset = 512;
+    for _ in 0..7 {
+        if read_at(&mut file, offset, &mut magic) && &magic == HDF5_MAGIC {
+            return true;
+        }
+        offset *= 2;
+    }
+    false
+}
+
+/// Fills `buf` from `offset`; `false` if the file is too short or unreadable.
+fn read_at(file: &mut fs::File, offset: u64, buf: &mut [u8]) -> bool {
+    file.seek(SeekFrom::Start(offset)).is_ok() && file.read_exact(buf).is_ok()
 }
 
 /// Routes a directory by what it contains rather than by its extension:
@@ -326,6 +381,57 @@ mod tests {
         assert!(
             html.contains("update global attrs"),
             "expected the version-history card to list the latest commit message"
+        );
+    }
+
+    /// Copies `fixture` into a fresh temp dir under `new_name`, renders it,
+    /// and cleans up. Lets the routing tests exercise the signature sniff
+    /// with extensions the extension list has never heard of.
+    fn render_renamed_fixture(fixture: &str, new_name: &str) -> String {
+        let dir = std::env::temp_dir().join(format!(
+            "gridlook_ffi_sniff_{}_{}",
+            std::process::id(),
+            new_name.replace('.', "_")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let copy = dir.join(new_name);
+        std::fs::copy(fixture_path(fixture), &copy).expect("copy fixture");
+        let html = render(copy.to_str().expect("temp path is UTF-8"));
+        let _ = std::fs::remove_dir_all(&dir);
+        html
+    }
+
+    #[test]
+    fn netcdf4_file_with_unknown_extension_is_routed_by_its_hdf5_signature() {
+        let html = render_renamed_fixture("simple.nc", "renamed.dat");
+        assert!(
+            html.contains("xr-wrap"),
+            "expected a rendered preview, got: {html}"
+        );
+        assert!(!html.contains("gq-error"));
+    }
+
+    #[test]
+    fn classic_netcdf_file_with_no_extension_is_routed_by_its_cdf_signature() {
+        let html = render_renamed_fixture("simple_classic.nc", "no_extension");
+        assert!(
+            html.contains("xr-wrap"),
+            "expected a rendered preview, got: {html}"
+        );
+        assert!(!html.contains("gq-error"));
+    }
+
+    /// A known extension still reaches libnetcdf even when the signature
+    /// doesn't match, so the user sees libnetcdf's diagnostic rather than
+    /// a generic "unsupported file type" card.
+    #[test]
+    fn netcdf_extension_without_a_signature_still_reaches_the_reader() {
+        let html = render_renamed_fixture("../generate.py", "not_really.nc");
+        assert!(html.contains("gq-error"));
+        assert!(
+            html.contains("failed to open"),
+            "expected libnetcdf's open error, got: {html}"
         );
     }
 
