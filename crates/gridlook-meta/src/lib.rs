@@ -3,12 +3,14 @@
 //! NetCDF, Zarr, and Icechunk.
 
 mod error;
+pub mod grib;
 pub mod icechunk;
 pub mod model;
 pub mod netcdf;
 pub mod zarr;
 
 pub use error::MetaError;
+pub use grib::summarize_grib;
 pub use icechunk::is_icechunk_repo;
 #[cfg(feature = "icechunk")]
 pub use icechunk::summarize_icechunk;

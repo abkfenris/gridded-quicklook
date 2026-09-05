@@ -39,7 +39,7 @@ conforming to `com.apple.package`.
 | `crates/gridlook-html`  | Renders a `DatasetSummary` as a self-contained HTML document      |
 | `crates/gridlook-ffi`   | C ABI (`staticlib`) linked into the app extension                 |
 | `apple/`               | XcodeGen spec, the host app, and the Quick Look preview extension |
-| `fixtures/`            | Fixture generator (`generate.py`); its output is not committed    |
+| `fixtures/`            | Fixture generator (`generate.py`) and sample downloader (`download_samples.py`); neither's output is committed |
 
 The Icechunk reader lives behind `gridlook-meta`'s non-default `icechunk`
 cargo feature (it pulls in a sizable dependency tree); `gridlook-ffi` enables
@@ -62,10 +62,11 @@ generation are usable without Xcode.
 
 | Task                          | What it does                                            |
 | ----------------------------- | ------------------------------------------------------- |
-| `mise run test`               | Regenerate fixtures, then `cargo test --workspace`      |
+| `mise run test`               | Regenerate fixtures and samples, then `cargo test --workspace` |
 | `mise run lint`               | `cargo fmt --check` + clippy                            |
 | `mise run hooks`              | `prek run --all-files`                                  |
 | `mise run fixtures`           | Generate `fixtures/data` + `fixtures/reference` (untracked) |
+| `mise run samples`            | Download `fixtures/samples` — real NOAA GRIB2 messages (untracked, needs network) |
 | `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `gridlook-html`       |
 | `mise run icons`              | Regenerate the app icon and document badge from `docs/icon` (needs node + Playwright) |
 | `mise run xcodeproj`          | Generate `apple/GridLook.xcodeproj`             |

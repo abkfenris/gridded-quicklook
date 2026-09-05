@@ -24,6 +24,8 @@ icechunk = { version = "2.2.0", default-features = false, features = [
 tokio = { version = "1", default-features = false, features = [
     "rt",
 ], optional = true }
+gribberish = { version = "1.7", default-features = false }
+memmap2 = "0.9"
 
 [features]
 default = []
