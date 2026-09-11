@@ -24,7 +24,9 @@ fn plain_zarr_stores_are_not_icechunk_repos() {
 mod with_reader {
     use super::fixture;
 
-    use ndlook_meta::{IcechunkRef, SourceFormat, summarize_icechunk, summarize_icechunk_at};
+    use ndlook_meta::{
+        IcechunkRef, ListRefs, SourceFormat, summarize_icechunk, summarize_icechunk_at,
+    };
 
     /// Snapshot ids and commit timestamps are regenerated every time
     /// `mise run fixtures` runs, so they are redacted: the snapshot asserts
@@ -59,11 +61,11 @@ mod with_reader {
         assert_eq!(version.ancestry.len(), 3);
         assert!(!version.truncated);
 
-        // The fixture repo has exactly one branch (`main`) and one tag
-        // (`v1`, pointing at the "initial data" commit) — see
-        // `write_icechunk_fixture` in fixtures/generate.py.
-        assert_eq!(version.branches, vec!["main".to_owned()]);
-        assert_eq!(version.tags, vec!["v1".to_owned()]);
+        // `summarize_icechunk` is the `ListRefs::No` path, so the repo's
+        // branch/tag lists are deliberately left unfilled — see
+        // `listing_refs_fills_the_branch_and_tag_lists` for the other half.
+        assert!(version.branches.is_empty());
+        assert!(version.tags.is_empty());
 
         // Newest first: the tip is the most recent commit.
         assert_eq!(
@@ -115,9 +117,31 @@ mod with_reader {
         assert!(summary.root.children.is_empty());
     }
 
+    /// The fixture repo has exactly one branch (`main`) and one tag (`v1`,
+    /// pointing at the "initial data" commit) — see
+    /// `write_icechunk_fixture` in fixtures/generate.py. Both lists are
+    /// only collected when the caller asks for them.
+    #[test]
+    fn listing_refs_fills_the_branch_and_tag_lists() {
+        let summary =
+            summarize_icechunk_at(&fixture("icechunk_repo.icechunk"), None, ListRefs::Yes)
+                .expect("summarize repo");
+
+        let version = summary
+            .version_info
+            .as_ref()
+            .expect("an Icechunk summary always carries version info");
+
+        assert_eq!(version.branches, vec!["main".to_owned()]);
+        assert_eq!(version.tags, vec!["v1".to_owned()]);
+        // Listing refs must not disturb which ref was actually previewed.
+        assert_eq!(version.branch, "main");
+        assert_eq!(version.ref_kind.as_deref(), Some("branch"));
+    }
+
     /// `summarize_icechunk` is documented as a thin wrapper over
-    /// `summarize_icechunk_at(path, None)` that previews `main`'s tip; this
-    /// pins that equivalence down as a regression test.
+    /// `summarize_icechunk_at(path, None, ListRefs::No)` that previews
+    /// `main`'s tip; this pins that equivalence down as a regression test.
     ///
     /// Compared via their JSON encoding rather than `PartialEq` directly:
     /// the fixture's `_FillValue` attribute is `NaN`, and `NaN != NaN` under
@@ -127,7 +151,7 @@ mod with_reader {
     fn default_summary_matches_explicit_none_reference() {
         let path = fixture("icechunk_repo.icechunk");
         let via_wrapper = summarize_icechunk(&path).expect("summarize repo");
-        let via_at = summarize_icechunk_at(&path, None).expect("summarize repo");
+        let via_at = summarize_icechunk_at(&path, None, ListRefs::No).expect("summarize repo");
 
         assert_eq!(
             serde_json::to_string(&via_wrapper).unwrap(),
@@ -145,6 +169,7 @@ mod with_reader {
         let summary = summarize_icechunk_at(
             &fixture("icechunk_repo.icechunk"),
             Some(&IcechunkRef::Tag("v1".to_owned())),
+            ListRefs::Yes,
         )
         .expect("summarize repo at tag v1");
 
@@ -182,8 +207,40 @@ mod with_reader {
         let result = summarize_icechunk_at(
             &fixture("icechunk_repo.icechunk"),
             Some(&IcechunkRef::Branch("does-not-exist".to_owned())),
+            ListRefs::No,
         );
 
         assert!(result.is_err(), "expected an error, got {result:?}");
+    }
+
+    /// Crockford base32 decodes case-insensitively, so a lowercase snapshot
+    /// id resolves fine — but the id it *displays* has to be the canonical
+    /// (uppercase) spelling, or it won't match the ids in `ancestry`, which
+    /// is how a UI locates the previewed snapshot in the history list.
+    #[test]
+    fn a_lowercase_snapshot_id_is_displayed_canonically() {
+        let path = fixture("icechunk_repo.icechunk");
+        let tip = summarize_icechunk(&path)
+            .expect("summarize repo")
+            .version_info
+            .expect("an Icechunk summary always carries version info")
+            .ancestry[0]
+            .id
+            .clone();
+        let lowercase = tip.to_lowercase();
+        assert_ne!(lowercase, tip, "the fixture's ids should not be lowercase");
+
+        let summary =
+            summarize_icechunk_at(&path, Some(&IcechunkRef::Snapshot(lowercase)), ListRefs::No)
+                .expect("summarize repo at a lowercase snapshot id");
+
+        let version = summary
+            .version_info
+            .as_ref()
+            .expect("an Icechunk summary always carries version info");
+
+        assert_eq!(version.ref_kind.as_deref(), Some("snapshot"));
+        assert_eq!(version.branch, tip);
+        assert_eq!(version.ancestry[0].id, tip);
     }
 }

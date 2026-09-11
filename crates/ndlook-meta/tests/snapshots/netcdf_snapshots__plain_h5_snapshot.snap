@@ -46,9 +46,11 @@ expression: summary
         "attrs": [
           [
             "units",
-            [
-              "degC"
-            ]
+            {
+              "TextList": [
+                "degC"
+              ]
+            }
           ]
         ]
       },
@@ -67,15 +69,19 @@ expression: summary
     "attrs": [
       [
         "title",
-        [
-          "ndlook plain HDF5 fixture"
-        ]
+        {
+          "TextList": [
+            "ndlook plain HDF5 fixture"
+          ]
+        }
       ],
       [
         "written_by",
-        [
-          "h5py"
-        ]
+        {
+          "TextList": [
+            "h5py"
+          ]
+        }
       ]
     ],
     "children": [

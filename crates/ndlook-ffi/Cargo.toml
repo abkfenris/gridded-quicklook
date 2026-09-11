@@ -12,7 +12,6 @@ crate-type = ["staticlib"]
 [dependencies]
 ndlook-meta = { workspace = true, features = ["icechunk"] }
 ndlook-html.workspace = true
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [build-dependencies]

@@ -1341,7 +1341,6 @@ dependencies = [
  "cbindgen",
  "ndlook-html",
  "ndlook-meta",
- "serde",
  "serde_json",
  "tempfile",
 ]
