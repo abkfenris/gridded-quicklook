@@ -5,3 +5,10 @@ extend-exclude = ["fixtures/*"]
 # ecCodes spells the isobaric level type "isobaricInhPa" (hPa = hectopascal);
 # typos otherwise "corrects" Inh -> In.
 inh = "inh"
+
+[default.extend-identifiers]
+# The app is called ndLook; typos would otherwise split it into `nd` + `Look`
+# and "correct" `nd` to `and`.
+ndLook = "ndLook"
+NDLook = "NDLook"
+NDLookApp = "NDLookApp"

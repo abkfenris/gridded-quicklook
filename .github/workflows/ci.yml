@@ -112,18 +112,24 @@ jobs:
           install: true
           cache: true
 
+      # The ffi crate is looked up from the manifest being built instead of
+      # hard-coded so the base leg survives a crate rename: until the rename
+      # merges, the base branch still carries the old package name.
       - name: Build staticlib
         env:
           MANIFEST: ${{ matrix.manifest }}
           TARGET_DIR: ${{ matrix.target_dir }}
-        run: cargo build --release -p ndlook-ffi --manifest-path "$MANIFEST" --target-dir "$TARGET_DIR"
+        run: |
+          pkg=$(cargo metadata --no-deps --format-version 1 --manifest-path "$MANIFEST" \
+            | jq -r '.packages[].name | select(endswith("-ffi"))')
+          cargo build --release -p "$pkg" --manifest-path "$MANIFEST" --target-dir "$TARGET_DIR"
 
       - name: Record size
         id: size
         env:
           SIDE: ${{ matrix.side }}
           TARGET_DIR: ${{ matrix.target_dir }}
-        run: echo "${SIDE}=$(stat -c%s "$TARGET_DIR/release/libndlook_ffi.a")" >> "$GITHUB_OUTPUT"
+        run: echo "${SIDE}=$(stat -c%s "$TARGET_DIR"/release/lib*_ffi.a)" >> "$GITHUB_OUTPUT"
 
   staticlib_size:
     name: staticlib size
