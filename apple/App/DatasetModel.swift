@@ -46,9 +46,14 @@ enum SourceFormat: String, Decodable, Hashable {
     case grib = "Grib"
 
     /// Short human-readable label for the format badge.
+    ///
+    /// Spelled exactly as `format_badge` in `crates/ndlook-html/src/lib.rs`
+    /// spells it, so the app window and the Quick Look preview label the same
+    /// file identically -- note the lowercase `n` in `netCDF`, which is the
+    /// project's house spelling.
     var displayName: String {
         switch self {
-        case .netCDF: "NetCDF"
+        case .netCDF: "netCDF"
         case .hdf5: "HDF5"
         case .zarrV2: "Zarr v2"
         case .zarrV3: "Zarr v3"
@@ -62,28 +67,28 @@ enum SourceFormat: String, Decodable, Hashable {
 
 /// One attribute value, preserving the type fidelity the Rust model keeps.
 ///
-/// The Rust enum is `#[serde(untagged)]`, so the wire form is a bare JSON
-/// value with no discriminator and the decoder has to reconstruct the case
-/// by trying each shape in turn. Order matters: JSON has one number type,
-/// and a whole number decodes happily as either an `Int64` or a `Double`,
-/// so the integer cases must be attempted first or every integer attribute
-/// would come back as a float. Hence `int` before `float`, and `intList`
-/// before `floatList`.
+/// # Wire format
 ///
-/// Known limitation of that ordering: a `Float` whose value happens to be
-/// whole serializes as `3.0` and decodes back as `.int(3)`, so an attribute
-/// like `scale_factor: 1.0` prints as `1` here where the Quick Look
-/// renderer (which never round-trips through JSON) prints `1.0`. JSON has
-/// no way to carry the distinction that survives decoding -- `Decimal`
-/// normalizes the trailing zero away too -- so recovering it would mean
-/// parsing the raw number text by hand. Cosmetic, and not worth that.
+/// Externally tagged, matching the `AttrValue` enum in
+/// `crates/ndlook-meta/src/model.rs`: every value is a single-key object
+/// naming its variant -- `{"Text":"degC"}`, `{"Int":3}`, `{"Float":1.0}`,
+/// `{"IntList":[1,2]}`, `{"FloatList":[1.0,2.0]}`,
+/// `{"TextList":["a","b"]}`.
 ///
-/// Non-finite floats are the sharp edge here. `serde_json` cannot represent
-/// NaN or +/-inf and writes them as `null`, so a `Float` attribute can
-/// arrive as a bare `null` and a `FloatList` can arrive as a list that
-/// mixes numbers and nulls. Both are decoded back to `.nan`: the value's
-/// exact non-finite flavor is unrecoverable from the JSON, and NaN is the
-/// honest stand-in for "a float that could not be written".
+/// The tag is what makes this decodable at all. The wire form used to be
+/// serde's *untagged* representation -- a bare JSON value -- which left a
+/// decoder guessing from shape alone, in some arbitrary order. JSON has one
+/// number type, so `{"Float":1.0}` written untagged as `1.0` came back as
+/// `.int(1)` here, and a one-element list was indistinguishable from a
+/// scalar to a decoder that ordered its arms differently. Reading the tag
+/// removes the guesswork: `1.0` stays a float.
+///
+/// Non-finite floats arrive as *strings* -- `{"Float":"NaN"}`,
+/// `{"Float":"inf"}`, `{"Float":"-inf"}`, and the same spellings for
+/// entries inside a `FloatList` -- because JSON has no literal for them.
+/// This is the common case rather than an exotic one: `_FillValue` is NaN
+/// on nearly every CF dataset. Finite floats stay JSON numbers, and both
+/// spellings are accepted on the way in.
 enum AttrValue: Decodable, Hashable {
     case text(String)
     case int(Int64)
@@ -92,49 +97,80 @@ enum AttrValue: Decodable, Hashable {
     case floatList([Double])
     case textList([String])
 
+    /// The variant tags, spelled exactly as serde writes the Rust enum's
+    /// case names.
+    private enum CodingKeys: String, CodingKey {
+        case text = "Text"
+        case int = "Int"
+        case float = "Float"
+        case intList = "IntList"
+        case floatList = "FloatList"
+        case textList = "TextList"
+    }
+
     init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        // A bare `null` is serde_json's rendering of a non-finite float
-        // (there is no other reason for a null to appear here), so it
-        // decodes to NaN rather than failing.
-        if container.decodeNil() {
-            self = .float(.nan)
-            return
-        }
-
-        if let value = try? container.decode(Int64.self) {
-            self = .int(value)
-            return
-        }
-        if let value = try? container.decode(Double.self) {
-            self = .float(value)
-            return
-        }
-        if let value = try? container.decode(String.self) {
-            self = .text(value)
-            return
-        }
-        if let value = try? container.decode([Int64].self) {
-            self = .intList(value)
-            return
-        }
-        // Decoded as optionals because a float list containing a NaN or an
-        // infinity comes across with nulls interleaved among the numbers;
-        // a plain `[Double]` decode would fail on the whole list.
-        if let value = try? container.decode([Double?].self) {
-            self = .floatList(value.map { $0 ?? .nan })
-            return
-        }
-        if let value = try? container.decode([String].self) {
-            self = .textList(value)
-            return
+        // Exactly one key: more than one is not an `AttrValue` serde would
+        // ever have written, and silently taking the first would hide a
+        // real drift between the two models.
+        guard container.allKeys.count == 1, let key = container.allKeys.first else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: """
+                        Expected a single-key AttrValue object, found keys: \
+                        \(container.allKeys.map(\.stringValue).sorted())
+                        """
+                )
+            )
         }
 
-        throw DecodingError.dataCorruptedError(
-            in: container,
-            debugDescription: "Attribute value did not match any AttrValue shape."
-        )
+        switch key {
+        case .text:
+            self = .text(try container.decode(String.self, forKey: .text))
+        case .int:
+            self = .int(try container.decode(Int64.self, forKey: .int))
+        case .float:
+            self = .float(try container.decode(WireFloat.self, forKey: .float).value)
+        case .intList:
+            self = .intList(try container.decode([Int64].self, forKey: .intList))
+        case .floatList:
+            self = .floatList(
+                try container.decode([WireFloat].self, forKey: .floatList).map(\.value)
+            )
+        case .textList:
+            self = .textList(try container.decode([String].self, forKey: .textList))
+        }
+    }
+
+    /// One float as the wire carries it: a JSON number when finite, a string
+    /// when not.
+    ///
+    /// Mirrors the `WireFloat` glue on the Rust side, including its
+    /// tolerance on the way in -- the parse accepts any spelling Swift's
+    /// `Double` initializer understands (`inf`, `Infinity`, `nan`, any
+    /// letter case), not just the three canonical ones we emit.
+    private struct WireFloat: Decodable {
+        let value: Double
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+
+            if let number = try? container.decode(Double.self) {
+                value = number
+                return
+            }
+
+            let text = try container.decode(String.self)
+            guard let parsed = Double(text) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "\(text) is not a number or a non-finite float spelling."
+                )
+            }
+            value = parsed
+        }
     }
 
     /// The value rendered the way the Rust HTML renderer's
@@ -159,18 +195,28 @@ enum AttrValue: Decodable, Hashable {
         case .floatList(let values):
             "[" + values.map(Self.formatFloat).joined(separator: ", ") + "]"
         case .textList(let values):
-            "[" + values.map { "'\($0)'" }.joined(separator: ", ") + "]"
+            "[" + values.map { "\'\($0)\'" }.joined(separator: ", ") + "]"
         }
     }
 
-    /// Matches `format_float` in `crates/ndlook-html/src/render.rs`:
-    /// Python prints whole floats with a trailing `.0`, which neither
-    /// Swift's nor Rust's default `Double` description does.
+    /// Matches `format_float` in `crates/ndlook-html/src/render.rs`, which
+    /// is `{:.1}` for whole floats and Rust's `Display` otherwise.
+    ///
+    /// Whole floats print with a trailing `.0`, which neither Swift's nor
+    /// Rust's bare `Double` description does; `%.1f` covers that and, unlike
+    /// Swift's `String(_:)`, never switches to exponent form for large
+    /// magnitudes.
+    ///
+    /// The non-whole branch is where the two languages genuinely differ.
+    /// Rust's `Display` for `f64` never uses exponent notation -- `1e-7`
+    /// prints as `0.0000001` -- while Swift's `String(_:)` switches to
+    /// `1e-07`. Both produce the same shortest round-tripping *digits*, so
+    /// the fix is to take Swift's digits and write them out positionally
+    /// rather than to reimplement float formatting.
     ///
     /// The non-finite spellings are Rust's (`NaN`, `inf`, `-inf`), not
-    /// Swift's lowercase `nan`, so the two renderers still agree on a value
-    /// that reached the app by some route other than JSON.
-    private static func formatFloat(_ value: Double) -> String {
+    /// Swift's lowercase `nan`.
+    static func formatFloat(_ value: Double) -> String {
         if value.isNaN {
             return "NaN"
         }
@@ -180,7 +226,58 @@ enum AttrValue: Decodable, Hashable {
         if value.truncatingRemainder(dividingBy: 1) == 0 {
             return String(format: "%.1f", value)
         }
-        return String(value)
+        return expandingExponent(String(value))
+    }
+
+    /// Rewrites `1e-07` as `0.0000001`, leaving text without an exponent
+    /// alone.
+    ///
+    /// Shifts the decimal point through the digit string by the exponent,
+    /// padding with zeros on whichever side runs out. Anything that does not
+    /// parse is returned unchanged -- a wrong-looking number beats a crash.
+    static func expandingExponent(_ text: String) -> String {
+        guard let marker = text.firstIndex(where: { $0 == "e" || $0 == "E" }),
+              let exponent = Int(text[text.index(after: marker)...])
+        else {
+            return text
+        }
+
+        var mantissa = String(text[text.startIndex..<marker])
+        var sign = ""
+        if mantissa.hasPrefix("-") {
+            sign = "-"
+            mantissa.removeFirst()
+        } else if mantissa.hasPrefix("+") {
+            mantissa.removeFirst()
+        }
+
+        var whole = mantissa
+        var fraction = ""
+        if let dot = mantissa.firstIndex(of: ".") {
+            whole = String(mantissa[mantissa.startIndex..<dot])
+            fraction = String(mantissa[mantissa.index(after: dot)...])
+        }
+
+        // Every digit, with the point's position tracked as an offset into
+        // them rather than as a character.
+        var digits = whole + fraction
+        var point = whole.count + exponent
+
+        // A point at or left of the start needs leading zeros to sit after;
+        // one past the end needs trailing zeros to sit before.
+        if point < 1 {
+            digits = String(repeating: "0", count: 1 - point) + digits
+            point = 1
+        }
+        if point > digits.count {
+            digits += String(repeating: "0", count: point - digits.count)
+        }
+
+        let split = digits.index(digits.startIndex, offsetBy: point)
+        let integerPart = String(digits[digits.startIndex..<split])
+        let fractionPart = String(digits[split...])
+
+        return fractionPart.isEmpty ? "\(sign)\(integerPart)" : "\(sign)\(integerPart).\(fractionPart)"
     }
 }
 
@@ -324,7 +421,7 @@ struct VersionInfo: Decodable, Hashable {
     /// initial snapshot.
     let truncated: Bool
 
-    private enum CodingKeys: String, CodingKey {
+    fileprivate enum CodingKeys: String, CodingKey {
         case branch
         case refKind = "ref_kind"
         case branches
@@ -332,28 +429,15 @@ struct VersionInfo: Decodable, Hashable {
         case ancestry
         case truncated
     }
+}
 
-    /// Memberwise initializer, written out by hand.
-    ///
-    /// Declaring `init(from:)` below suppresses the one Swift would
-    /// otherwise synthesize, and tests need to build `VersionInfo` values
-    /// directly rather than round-tripping every fixture through JSON.
-    init(
-        branch: String,
-        refKind: String?,
-        branches: [String],
-        tags: [String],
-        ancestry: [SnapshotInfo],
-        truncated: Bool
-    ) {
-        self.branch = branch
-        self.refKind = refKind
-        self.branches = branches
-        self.tags = tags
-        self.ancestry = ancestry
-        self.truncated = truncated
-    }
-
+/// The decoder lives in an extension so the struct above keeps its
+/// *synthesized* memberwise initializer: declaring any `init` in the type's
+/// own body suppresses it, which previously meant hand-writing a memberwise
+/// initializer that had to be kept in step with the stored properties by
+/// hand. Tests build `VersionInfo` values directly, so that initializer has
+/// to exist -- this just lets the compiler keep writing it.
+extension VersionInfo {
     /// Hand-written so `branches` and `tags` can default to empty.
     ///
     /// Both are `#[serde(default)]` in Rust (they were added after the type
@@ -362,12 +446,14 @@ struct VersionInfo: Decodable, Hashable {
     /// optional-key reads below are what keep that older JSON decodable.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        branch = try container.decode(String.self, forKey: .branch)
-        refKind = try container.decodeIfPresent(String.self, forKey: .refKind)
-        branches = try container.decodeIfPresent([String].self, forKey: .branches) ?? []
-        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
-        ancestry = try container.decode([SnapshotInfo].self, forKey: .ancestry)
-        truncated = try container.decode(Bool.self, forKey: .truncated)
+        self.init(
+            branch: try container.decode(String.self, forKey: .branch),
+            refKind: try container.decodeIfPresent(String.self, forKey: .refKind),
+            branches: try container.decodeIfPresent([String].self, forKey: .branches) ?? [],
+            tags: try container.decodeIfPresent([String].self, forKey: .tags) ?? [],
+            ancestry: try container.decode([SnapshotInfo].self, forKey: .ancestry),
+            truncated: try container.decode(Bool.self, forKey: .truncated)
+        )
     }
 }
 

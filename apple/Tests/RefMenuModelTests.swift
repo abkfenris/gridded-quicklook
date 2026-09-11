@@ -257,15 +257,36 @@ final class RefMenuSelectionTests: XCTestCase {
     /// Snapshot rows carry the abbreviated id and the message; the date is
     /// locale-dependent, so it is checked for presence via the separator
     /// rather than by exact text.
-    func testSnapshotRowLabelCarriesIdAndMessage() {
+    /// All three parts must be present, not just two.
+    ///
+    /// The fixture's `wrote_at` carries six fractional digits, which is what
+    /// Icechunk actually writes and what `ISO8601DateFormatter` rejects
+    /// unless it is configured for fractional seconds. A weaker assertion
+    /// here (one separator, or "contains a separator") passed with the date
+    /// silently missing, so a regression in `formatTimestamp` went unnoticed:
+    /// counting the separators is what makes the date's absence a failure.
+    func testSnapshotRowLabelCarriesIdMessageAndDate() {
         let pinned = defaultLoad()
         let menu = RefMenuModel(pinned: pinned, current: pinned)
         let row = menu.sections.first { $0.title == "Snapshots" }?.rows.first
+        let label = try? XCTUnwrap(row?.label)
 
-        let label = row?.label
-        XCTAssertEqual(label?.hasPrefix("BVP8CH0S"), true)
-        XCTAssertEqual(label?.contains("update global attrs"), true)
-        XCTAssertEqual(label?.contains(" \u{00B7} "), true, "id, message and date are separated")
+        XCTAssertEqual(label?.hasPrefix("BVP8CH0S"), true, "abbreviated id leads")
+        XCTAssertEqual(label?.contains("update global attrs"), true, "message present")
+        XCTAssertEqual(
+            label?.components(separatedBy: " \u{00B7} ").count,
+            3,
+            "expected id, message and date -- two separators, not one"
+        )
+
+        // And the date itself parses, rather than the raw timestamp being
+        // passed through verbatim.
+        let formatted = try? XCTUnwrap(
+            RefMenuModel.formatTimestamp("2026-09-05T23:45:49.906701+00:00")
+        )
+        XCTAssertNotNil(formatted, "six-digit fractional seconds must parse")
+        XCTAssertEqual(formatted?.contains("2026"), true)
+        XCTAssertEqual(label?.hasSuffix(formatted ?? "\u{0}"), true, "the date is the last part")
     }
 }
 
@@ -676,38 +697,21 @@ final class RefKindTests: XCTestCase {
         XCTAssertEqual(RefKind.snapshot.ref("ABC123"), "snapshot:ABC123")
     }
 
-    func testRoundTrip() {
-        for kind in RefKind.allCases {
-            let parsed = RefKind.parse(kind.ref("some-name"))
-            XCTAssertEqual(parsed?.kind, kind)
-            XCTAssertEqual(parsed?.name, "some-name")
-        }
-    }
-
-    /// Splitting on the first colon only, so a name containing one survives.
+    /// A name containing a colon must survive being put into a ref string --
+    /// the FFI splits on the first one.
     func testNameMayContainAColon() {
-        let parsed = RefKind.parse("tag:release:2026-09")
-        XCTAssertEqual(parsed?.kind, .tag)
-        XCTAssertEqual(parsed?.name, "release:2026-09")
+        XCTAssertEqual(RefKind.tag.ref("release:2026-09"), "tag:release:2026-09")
     }
 
-    func testMalformedRefsAreRejected() {
-        XCTAssertNil(RefKind.parse("garbage"), "no separator")
-        XCTAssertNil(RefKind.parse("bogus:main"), "unknown kind")
-        XCTAssertNil(RefKind.parse("branch:"), "empty name")
-        XCTAssertNil(RefKind.parse(""), "empty string")
-    }
-
-    /// Every row's `ref` must parse back to the kind and name it was built
-    /// from -- that string is what gets handed to the FFI.
-    func testEveryMenuRowProducesAParseableRef() {
+    /// Every row hands the FFI a ref built from its own kind and name; this
+    /// is what keeps the menu's selection and the reload request in step.
+    func testEveryMenuRowBuildsItsRefFromItsOwnKindAndName() {
         let pinned = defaultLoad()
         let menu = RefMenuModel(pinned: pinned, current: pinned)
 
         for row in menu.sections.flatMap(\.rows) {
-            let parsed = RefKind.parse(row.ref)
-            XCTAssertEqual(parsed?.kind, row.kind, "round trip for \(row.ref)")
-            XCTAssertEqual(parsed?.name, row.name, "round trip for \(row.ref)")
+            XCTAssertEqual(row.ref, row.kind.ref(row.name))
+            XCTAssertTrue(row.ref.hasPrefix("\(row.kind.rawValue):"))
         }
     }
 }

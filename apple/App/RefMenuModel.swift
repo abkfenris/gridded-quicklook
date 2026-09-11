@@ -64,21 +64,14 @@ enum RefKind: String, CaseIterable {
     }
 
     /// Builds the `"kind:value"` ref string the FFI expects.
+    ///
+    /// The only place this grammar is spelled out on the Swift side. There
+    /// was an inverse `parse` here too, but nothing in the app ever needed
+    /// to take a ref string apart -- refs are built here and handed straight
+    /// to the FFI -- so it existed only to be tested, while giving the wire
+    /// grammar a second definition that could drift from this one.
     func ref(_ name: String) -> String {
         "\(rawValue):\(name)"
-    }
-
-    /// The inverse of `ref(_:)`, or `nil` if `ref` is not well formed.
-    ///
-    /// Splits on the *first* colon only, so a name containing one survives
-    /// the round trip. An unknown kind or an empty name is rejected rather
-    /// than guessed at -- the FFI would reject it too.
-    static func parse(_ ref: String) -> (kind: RefKind, name: String)? {
-        guard let colon = ref.firstIndex(of: ":") else { return nil }
-        guard let kind = RefKind(rawValue: String(ref[ref.startIndex..<colon])) else { return nil }
-        let name = String(ref[ref.index(after: colon)...])
-        guard !name.isEmpty else { return nil }
-        return (kind, name)
     }
 }
 
@@ -200,20 +193,6 @@ struct RefMenuModel: Equatable {
         return parts.joined(separator: " \u{00B7} ")
     }
 
-    /// The text on the control itself, bounded in length.
-    ///
-    /// Snapshots collapse to the same 8-character prefix the menu rows use;
-    /// a full id is 20 characters of opaque base32 and says nothing extra.
-    /// Branch and tag names are user-chosen and normally short, so they are
-    /// shown whole -- but capped, because nothing stops someone naming a
-    /// branch after a whole sentence.
-    ///
-    /// The cap is applied to the *string*, not left to the view. A toolbar
-    /// measures an item's intrinsic width to decide whether it fits, and
-    /// `.lineLimit`/`.truncationMode` change only how text draws, not what
-    /// width it asks for -- so an over-long label can push the whole item
-    /// into the toolbar's overflow menu no matter how it is truncated on
-    /// screen. Bounding the string is what actually bounds the measurement.
     // MARK: - Fitting the toolbar slot
 
     /// Empirical geometry of the sidebar's slice of the titlebar.
@@ -357,16 +336,29 @@ struct RefMenuModel: Equatable {
 
     /// The most characters the control's label may carry.
     ///
-    /// Sized for the sidebar's toolbar slot, which is the gap between the
-    /// traffic lights and the sidebar toggle -- roughly 100-120pt, and not
-    /// something the app can query. At the system font that budget is
-    /// around a dozen characters once the kind icon and the menu chevron
-    /// take their share. Erring short is the right bias: an over-long label
-    /// does not merely clip, it pushes the entire control into the toolbar's
-    /// overflow menu, where it is far harder to find than a truncated name
-    /// is to read.
+    /// A backstop, not the primary bound. `presentation` is what actually
+    /// keeps the control inside the slot, measuring the real label against
+    /// the real geometry -- see `Slot` for those figures, which are stated
+    /// there once and deliberately not repeated here. This cap only stops a
+    /// pathological name (a branch named after a whole sentence) from
+    /// reaching the measurement at all.
+    ///
+    /// Twelve is about what the narrowest allowed slot holds at the system
+    /// font. Erring short is the right bias: an over-long label does not
+    /// merely clip, it pushes the entire control into the toolbar's overflow
+    /// menu, which is far harder to find than a truncated name is to read.
     static let controlLabelLimit = 12
 
+    /// The text on the control itself, bounded in length.
+    ///
+    /// Snapshots collapse to the same 8-character prefix the menu rows use;
+    /// a full id is 20 characters of opaque base32 and says nothing extra.
+    /// Branch and tag names are user-chosen and normally short, so they are
+    /// shown whole -- but capped, for the reason on `controlLabelLimit`.
+    ///
+    /// The cap is applied to the *string*, not left to the view, because
+    /// `.lineLimit`/`.truncationMode` change only how text draws, not the
+    /// width it asks for -- and width is what the toolbar measures.
     static func controlLabel(kind: RefKind, name: String) -> String {
         let base = kind == .snapshot ? abbreviate(name) : name
         return middleTruncate(base, limit: controlLabelLimit)

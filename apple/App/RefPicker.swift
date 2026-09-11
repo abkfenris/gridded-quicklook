@@ -104,6 +104,12 @@ struct RefPicker: View {
     /// `nil`, meaning "whatever the default resolves to".
     private func entry(_ row: RefMenuModel.Row) -> some View {
         Button {
+            // Re-picking the ref already on screen does nothing. Assigning
+            // anyway would be a visible round trip to an identical result:
+            // on the default load `selectedRef` is still nil, so choosing
+            // "main" would write "branch:main", change the reload key, and
+            // re-read the whole repository to arrive back where it started.
+            guard !row.isCurrent else { return }
             selectedRef = row.ref
         } label: {
             if row.isCurrent {

@@ -105,25 +105,25 @@ enum NDLookFFI {
     ///
     /// The contract is a JSON object with exactly one of two keys:
     /// `{"summary": <DatasetSummary>}` on success, `{"error": "<message>"}`
-    /// on any failure. Both are tried, and anything that matches neither is
-    /// itself reported as an error -- an unparsable envelope means the
-    /// Swift model and the Rust model have drifted apart, which the user
-    /// should see rather than have swallowed.
+    /// on any failure.
+    ///
+    /// Decoded in a single pass. The previous version ran the whole document
+    /// through `JSONDecoder` once looking for an error envelope and then, on
+    /// a success payload, a second time for the summary -- parsing every
+    /// byte twice on the common path. One keyed container settles which
+    /// envelope arrived before either half is decoded, so only the half
+    /// actually present is ever parsed.
+    ///
+    /// The error key is checked first so a genuine Rust-side message is
+    /// reported as itself rather than as a decoding failure, and the summary
+    /// is decoded with `try` rather than `try?` so a drift between the Swift
+    /// and Rust models surfaces as a real `DecodingError` instead of a bare
+    /// "could not decode".
     private static func decodeEnvelope(_ json: Data) -> Result<DatasetSummary, SummaryError> {
-        let decoder = JSONDecoder()
-
-        if let envelope = try? decoder.decode(ErrorEnvelope.self, from: json) {
-            return .failure(SummaryError(envelope.error))
-        }
-
-        // Not `try?`: when the payload is neither envelope, the decoding
-        // error is the only clue about *how* the Swift and Rust models
-        // drifted, and "could not decode" with no detail is close to
-        // useless. Attempting the error envelope first (above) keeps a
-        // genuine Rust-side error message from being reported as a
-        // decoding failure.
         do {
-            return .success(try decoder.decode(SummaryEnvelope.self, from: json).summary)
+            return .success(try JSONDecoder().decode(Envelope.self, from: json).summary)
+        } catch let error as SummaryError {
+            return .failure(error)
         } catch {
             return .failure(
                 SummaryError("Could not decode the summary returned by ndlook-ffi: \(error)")
@@ -131,13 +131,28 @@ enum NDLookFFI {
         }
     }
 
-    /// `{"summary": <DatasetSummary>}` -- the success half of the envelope.
-    private struct SummaryEnvelope: Decodable {
+    /// The result envelope, resolved in one decode.
+    ///
+    /// Throwing `SummaryError` out of `init(from:)` is what lets the error
+    /// half short-circuit without a second parse: `decodeEnvelope` catches
+    /// that type specifically and passes the message straight through, while
+    /// anything else thrown is a genuine decoding problem worth reporting in
+    /// full.
+    private struct Envelope: Decodable {
         let summary: DatasetSummary
-    }
 
-    /// `{"error": "<message>"}` -- the failure half of the envelope.
-    private struct ErrorEnvelope: Decodable {
-        let error: String
+        private enum CodingKeys: String, CodingKey {
+            case summary
+            case error
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+
+            if let message = try container.decodeIfPresent(String.self, forKey: .error) {
+                throw SummaryError(message)
+            }
+            summary = try container.decode(DatasetSummary.self, forKey: .summary)
+        }
     }
 }

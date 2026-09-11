@@ -78,6 +78,27 @@ final class DocumentViewModel {
     /// the window is ever pointed at a different document.
     @ObservationIgnored private var pinnedURL: URL?
 
+    /// The last ref that loaded successfully, so a failed switch can be
+    /// rolled back to something that works.
+    @ObservationIgnored private var lastGoodRef: String?
+
+    /// Set when a *reload* fails while a summary is already on screen.
+    ///
+    /// Reported alongside the surviving dataset rather than replacing it.
+    /// Replacing it was a dead end: the error card takes over the whole
+    /// window, taking the ref picker with it, while `selectedRef` still
+    /// holds the ref that just failed -- so the reload key never changes,
+    /// nothing retries, and the last good summary is gone. Keeping the tree
+    /// up means the picker stays reachable and another ref is one click
+    /// away.
+    var reloadError: String?
+
+    /// Dismisses the reload-failure notice. The dataset on screen is
+    /// unaffected -- it was never replaced.
+    func dismissReloadError() {
+        reloadError = nil
+    }
+
     /// The in-flight load, kept so a new one can cancel it.
     ///
     /// `@ObservationIgnored` because it is bookkeeping, not display state:
@@ -96,10 +117,19 @@ final class DocumentViewModel {
         loadTask?.cancel()
 
         // A pin describes one repository's history; pointing the window at
-        // a different document invalidates it.
+        // a different document invalidates it -- and so does the ref, which
+        // names a branch/tag/snapshot in the *old* repository.
+        //
+        // Clearing `selectedRef` alongside the pin is load-bearing, not
+        // tidiness. The pin is only ever taken from a default (`ref == nil`)
+        // load, so leaving a stale ref set means no load can ever re-pin:
+        // the ref menu never comes back for the life of the window.
         if pinnedURL != url {
             pinnedURL = url
             pinnedVersionInfo = nil
+            selectedRef = nil
+            lastGoodRef = nil
+            reloadError = nil
         }
 
         // A first load has nothing to show, so it blanks to a spinner; a
@@ -118,6 +148,17 @@ final class DocumentViewModel {
         // `self` from another isolation domain.
         let path = url.path(percentEncoded: false)
         let ref = selectedRef
+
+        // Clear a previous failure only when this load is a genuine move to
+        // a different ref. Rolling `selectedRef` back after a failure itself
+        // triggers a reload of the last good ref, and clearing on *that*
+        // would wipe the message before anyone could read it -- the error
+        // would flash and vanish. Comparing against `lastGoodRef` tells the
+        // two apart: a rollback reloads what already worked, a real switch
+        // does not.
+        if ref != lastGoodRef {
+            reloadError = nil
+        }
 
         loadTask = Task { [weak self] in
             // `NDLookFFI.summarize` is synchronous and can block for a
@@ -143,17 +184,34 @@ final class DocumentViewModel {
 
             switch result {
             case .success(let summary):
-                // Pin the first *default* load's history. Only `ref == nil`
-                // qualifies: that is the one load guaranteed to have walked
-                // back from the repository's default tip, so it sees the
-                // fullest ancestry available. Set before publishing `phase`
-                // so the view never renders a loaded summary without it.
-                if ref == nil, self.pinnedVersionInfo == nil {
-                    self.pinnedVersionInfo = summary.versionInfo
+                // Pin the repository's history the first time we see any.
+                // A default (`ref == nil`) load is preferred, because it
+                // walks back from the repository's own tip and so sees the
+                // fullest ancestry -- but any successful load is better than
+                // no menu at all, which is what a window opened straight
+                // onto a non-default ref would otherwise get.
+                if self.pinnedVersionInfo == nil, let versionInfo = summary.versionInfo {
+                    self.pinnedVersionInfo = versionInfo
                 }
+                self.lastGoodRef = ref
                 self.phase = .loaded(summary)
+
             case .failure(let error):
-                self.phase = .failed(error.message)
+                if case .loaded = self.phase {
+                    // A ref switch that failed. Keep the dataset that is
+                    // already on screen and report the failure beside it:
+                    // replacing the window with an error card would take the
+                    // ref picker down too, stranding the user on a ref that
+                    // cannot load. Rolling `selectedRef` back to the last
+                    // good value also restores the reload key, so picking
+                    // the same ref again genuinely retries.
+                    self.reloadError = error.message
+                    self.selectedRef = self.lastGoodRef
+                } else {
+                    // Nothing on screen to preserve -- the error card is the
+                    // whole story.
+                    self.phase = .failed(error.message)
+                }
             }
         }
     }

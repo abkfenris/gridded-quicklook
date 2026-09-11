@@ -161,7 +161,6 @@ struct SidebarNode: Identifiable, Hashable {
 /// The dataset's structure as a selectable outline, with the Icechunk ref
 /// picker in the sidebar's section of the window's titlebar.
 struct SidebarView: View {
-    let root: GroupSummary
     /// The ref menu's contents, or `nil` for the formats with no version
     /// history -- which is every format but Icechunk.
     let refMenu: RefMenuModel?
@@ -194,6 +193,24 @@ struct SidebarView: View {
     /// Cancelled and replaced on every width change, so the settle timer
     /// only fires once the drag has actually stopped.
     @State private var settleTask: Task<Void, Never>?
+
+    init(
+        root: GroupSummary,
+        refMenu: RefMenuModel?,
+        selectedRef: Binding<String?>,
+        isReloading: Bool,
+        isSidebarVisible: Bool,
+        selection: Binding<SidebarItem?>
+    ) {
+        // The one place the tree is built. SwiftUI recreates this struct
+        // when `root` changes, so "once per init" is "once per dataset".
+        self.sections = TreeSections(root: root)
+        self.refMenu = refMenu
+        self._selectedRef = selectedRef
+        self.isReloading = isReloading
+        self.isSidebarVisible = isSidebarVisible
+        self._selection = selection
+    }
 
     var body: some View {
         list
@@ -299,26 +316,26 @@ struct SidebarView: View {
             // burying all of it one disclosure triangle deep would mean an
             // empty-looking sidebar on open.
             Section {
-                row(for: rootNode)
+                row(for: sections.rootRow)
             }
 
-            if !root.coords.isEmpty {
+            if !sections.coordinates.isEmpty {
                 Section("Coordinates") {
-                    ForEach(coordinateNodes) { row(for: $0) }
+                    ForEach(sections.coordinates) { row(for: $0) }
                 }
             }
 
-            if !root.dataVars.isEmpty {
+            if !sections.dataVariables.isEmpty {
                 Section("Data variables") {
-                    ForEach(dataVariableNodes) { row(for: $0) }
+                    ForEach(sections.dataVariables) { row(for: $0) }
                 }
             }
 
-            if !root.children.isEmpty {
+            if !sections.groups.isEmpty {
                 Section("Groups") {
                     // Subgroups keep the full recursive treatment: each one
                     // expands to its own coords, data vars and subgroups.
-                    ForEach(childGroupNodes) { node in
+                    ForEach(sections.groups) { node in
                         OutlineGroup(node, children: \.children) { row(for: $0) }
                     }
                 }
@@ -361,32 +378,53 @@ struct SidebarView: View {
         }
     }
 
-    /// The root row itself, without children -- the sections render those.
-    private var rootNode: SidebarNode {
-        SidebarNode(
-            item: .group(path: SidebarItem.rootPath),
-            title: SidebarItem.rootPath,
-            subtitle: nil,
-            symbol: "folder",
-            children: nil
-        )
-    }
+    /// The whole display tree, built once per dataset.
+    ///
+    /// Previously this was four computed properties, each remapping part of
+    /// `root` on every body evaluation -- and body runs on every
+    /// sidebar-width change, so dragging the divider rebuilt the entire node
+    /// tree once a frame for a dataset that had not changed. They also
+    /// duplicated the mapping in `SidebarNode.make`, leaving two places that
+    /// had to agree on how a row is built.
+    ///
+    /// Now there is one construction, and the sections below are slices of
+    /// it. `sections` is a `let`, so it is computed in `init` and reused for
+    /// the view's whole lifetime; SwiftUI discards and rebuilds the struct
+    /// when `root` actually changes, which is exactly when the tree needs
+    /// rebuilding.
+    private let sections: TreeSections
 
-    private var coordinateNodes: [SidebarNode] {
-        root.coords.map {
-            SidebarNode.make(variable: $0, kind: .coordinate, in: SidebarItem.rootPath)
-        }
-    }
+    /// The display tree, split the way the sidebar lays it out.
+    struct TreeSections {
+        let rootRow: SidebarNode
+        let coordinates: [SidebarNode]
+        let dataVariables: [SidebarNode]
+        let groups: [SidebarNode]
 
-    private var dataVariableNodes: [SidebarNode] {
-        root.dataVars.map {
-            SidebarNode.make(variable: $0, kind: .dataVariable, in: SidebarItem.rootPath)
-        }
-    }
+        /// Derives every section from one walk of `root`, using the same
+        /// `SidebarNode.make` the nested groups use, so a row built at the
+        /// top level and one built three groups down are built identically.
+        init(root: GroupSummary) {
+            let path = SidebarItem.rootPath
 
-    private var childGroupNodes: [SidebarNode] {
-        root.children.map {
-            SidebarNode.make(group: $0, at: SidebarItem.childPath(SidebarItem.rootPath, $0.name))
+            // The root's own row is childless on purpose: its contents are
+            // hoisted into the sections below rather than nested under it.
+            rootRow = SidebarNode(
+                item: .group(path: path),
+                title: path,
+                subtitle: nil,
+                symbol: "folder",
+                children: nil
+            )
+            coordinates = root.coords.map {
+                SidebarNode.make(variable: $0, kind: .coordinate, in: path)
+            }
+            dataVariables = root.dataVars.map {
+                SidebarNode.make(variable: $0, kind: .dataVariable, in: path)
+            }
+            groups = root.children.map {
+                SidebarNode.make(group: $0, at: SidebarItem.childPath(path, $0.name))
+            }
         }
     }
 

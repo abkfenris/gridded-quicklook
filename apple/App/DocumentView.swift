@@ -34,6 +34,9 @@ struct DocumentView: View {
     /// to -- so `SidebarView` uses this to withdraw it entirely.
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
 
+    /// Memo for `refMenu(for:)`, keyed on the inputs it was built from.
+    @State private var refMenuCache: (inputs: MenuInputs, menu: RefMenuModel)?
+
     var body: some View {
         content
             // One `.task` keyed on both inputs, rather than a `.task` for
@@ -76,6 +79,18 @@ struct DocumentView: View {
     /// Checks the format as well as the presence of version info: the two
     /// always agree today, but the format is the real condition being
     /// expressed and reading it here keeps that explicit.
+    /// Rebuilt only when its inputs change, not on every body evaluation.
+    ///
+    /// Building one is not free -- it parses an RFC 3339 timestamp per
+    /// snapshot and produces the label string that the toolbar then measures
+    /// against a font. Body runs on every sidebar-width change, which during
+    /// a divider drag is every frame, so constructing it inline made a drag
+    /// re-parse the entire ancestry per frame for a result that had not
+    /// changed.
+    ///
+    /// `MenuInputs` is the memo key: the two `VersionInfo` values the menu is
+    /// derived from. Both are `Hashable` value types, so equality on them is
+    /// exactly "would this produce the same menu".
     private func refMenu(for summary: DatasetSummary) -> RefMenuModel? {
         guard summary.format == .icechunk,
               let live = summary.versionInfo,
@@ -83,7 +98,24 @@ struct DocumentView: View {
         else {
             return nil
         }
-        return RefMenuModel(pinned: pinned, current: live)
+
+        let inputs = MenuInputs(pinned: pinned, current: live)
+        if let cached = refMenuCache, cached.inputs == inputs {
+            return cached.menu
+        }
+
+        let menu = RefMenuModel(pinned: pinned, current: live)
+        // `@State` written during body: safe here because it is a pure cache
+        // -- the value stored is a function of the inputs just read, so the
+        // extra invalidation it schedules produces an identical body.
+        refMenuCache = (inputs, menu)
+        return menu
+    }
+
+    /// What a `RefMenuModel` is a function of.
+    private struct MenuInputs: Hashable {
+        let pinned: VersionInfo
+        let current: VersionInfo
     }
 
     @ViewBuilder
@@ -122,6 +154,16 @@ struct DocumentView: View {
                 )
             } detail: {
                 DetailView(summary: summary, selection: selection)
+                    // Attached to the detail column rather than wrapped
+                    // around the `NavigationSplitView`: the split view has to
+                    // stay the root of this scene for the unified titlebar to
+                    // keep working, and putting a `VStack` above it would
+                    // take the sidebar's toolbar section with it.
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if let message = viewModel.reloadError {
+                            reloadErrorBar(message)
+                        }
+                    }
             }
         }
     }
@@ -160,6 +202,38 @@ struct DocumentView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The failed-ref-switch notice.
+    ///
+    /// Deliberately a bar rather than an error card or a sheet: the dataset
+    /// the user was looking at is still on screen and still usable, and the
+    /// ref picker is still in the titlebar, so this reports what did not
+    /// happen without taking anything away. Dismissible because the previous
+    /// state is entirely valid to keep working in.
+    private func reloadErrorBar(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+
+            Text(message)
+                .font(.callout)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                viewModel.dismissReloadError()
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var formatLabel: String {

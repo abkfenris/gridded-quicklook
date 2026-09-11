@@ -33,12 +33,12 @@
 # files referenced below (App/Info.plist declares them, PreviewExtension/
 # Info.plist matches against them in QLSupportedContentTypes), not in this
 # spec -- xcodegen copies INFOPLIST_FILE through verbatim. The app imports
-# com.alexkerney.ndlook.netcdf/.hdf5 (file types) and exports com.alexkerney.ndlook.zarr/
-# .icechunk (directory stores, conforming to com.apple.package so the
-# Finder treats them as previewable single items). ndLook is itself a
-# viewer/opener for these types -- App/Info.plist's CFBundleDocumentTypes
-# (added in a later step) is what makes the Finder offer it as an "Open
-# With" target, on top of the UTI declarations here.
+# com.alexkerney.ndlook.netcdf/.hdf5/.grib (file types) and exports
+# com.alexkerney.ndlook.zarr/.icechunk (directory stores, conforming to
+# com.apple.package so the Finder treats them as previewable single items).
+# ndLook is itself a viewer/opener for these types: App/Info.plist's
+# CFBundleDocumentTypes is what makes the Finder offer it as an "Open With"
+# target, on top of the UTI declarations there.
 ########################################################################
 
 name: ndLook
@@ -205,8 +205,14 @@ targets:
 schemes:
   ndLook:
     build:
+      # The app is deliberately *not* built for the test action.
+      # NDLookTests compiles the sources it exercises directly and links no
+      # Rust, so listing the app as `all` made `xcodebuild test` build the
+      # app, the app extension, and -- through that extension's prebuild
+      # script -- a full `cargo build --release`, none of which any test
+      # touches.
       targets:
-        ndLook: all
+        ndLook: [run, profile, analyze, archive]
         NDLookTests: [test]
     run:
       config: Debug
