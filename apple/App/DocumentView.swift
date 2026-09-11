@@ -26,12 +26,17 @@ struct DocumentView: View {
 
     var body: some View {
         content
-            // `.task(id:)` reruns whenever the URL changes and cancels the
-            // previous run, which is exactly the reload trigger we want.
+            // One `.task` keyed on both inputs, rather than a `.task` for
+            // the URL plus an `.onChange` for the ref: a composite key
+            // reruns on a change to either, and -- crucially -- runs
+            // exactly once on appear. Wiring the ref up separately would
+            // have meant either a second initial load or an `.onChange`
+            // that has to know to skip its first call.
+            //
             // `load` itself returns immediately -- it owns its own task and
             // supersedes any load already in flight -- so nothing is
             // awaited here.
-            .task(id: fileURL) {
+            .task(id: ReloadKey(url: fileURL, ref: viewModel.selectedRef)) {
                 guard let fileURL else { return }
                 viewModel.load(url: fileURL)
             }
@@ -40,6 +45,48 @@ struct DocumentView: View {
             // name, so it belongs beside the title rather than in it. Empty
             // until the summary lands, which reads as "not known yet".
             .navigationSubtitle(formatLabel)
+            .toolbar { toolbarContent }
+    }
+
+    /// What a reload depends on. A change to either field is a different
+    /// dataset view and must re-run `load`.
+    private struct ReloadKey: Hashable {
+        let url: URL?
+        let ref: String?
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        // Only Icechunk repos have refs to choose between; every other
+        // format loads exactly one thing, so the control would be an
+        // always-disabled decoration.
+        if let versionInfo = icechunkVersionInfo {
+            ToolbarItem(placement: .primaryAction) {
+                RefPicker(versionInfo: versionInfo, selectedRef: $viewModel.selectedRef)
+            }
+        }
+
+        // Shown during a ref switch, when the window deliberately keeps the
+        // previous tree on screen (see `DocumentViewModel.isReloading`) and
+        // so has no other sign that anything is happening.
+        if viewModel.isReloading {
+            ToolbarItem(placement: .automatic) {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    /// The loaded summary's version history, if it has one.
+    ///
+    /// Checks the format as well as the presence of `versionInfo`: the two
+    /// always agree today, but the format is the real condition being
+    /// expressed and reading it here keeps that explicit.
+    private var icechunkVersionInfo: VersionInfo? {
+        guard case .loaded(let summary) = viewModel.phase, summary.format == .icechunk else {
+            return nil
+        }
+        return summary.versionInfo
     }
 
     @ViewBuilder

@@ -35,14 +35,27 @@ final class DocumentViewModel {
 
     private(set) var phase: Phase = .loading
 
+    /// True while a *replacement* load is running -- one that started while
+    /// a summary was already on screen, i.e. an Icechunk ref switch.
+    ///
+    /// This exists so a ref switch does not blank the window back to a
+    /// spinner. `phase` stays `.loaded` with the old summary and the view
+    /// shows a small toolbar spinner instead, which keeps the sidebar's
+    /// scroll position and selection visible across the switch. Keeping it
+    /// as a separate flag rather than adding a `.reloading(DatasetSummary)`
+    /// case means the view's `phase` switch is untouched -- the reload is
+    /// genuinely orthogonal to which of the three states we are in.
+    private(set) var isReloading = false
+
     /// Which version of an Icechunk repo to read, in
     /// `ndlook_summarize_json`'s `"kind:value"` form (`"branch:main"`,
     /// `"tag:v1"`, `"snapshot:ID"`), or `nil` for the default -- `main`'s
     /// tip for Icechunk, and ignored entirely for formats without version
     /// history.
     ///
-    /// Set by the ref picker, which does not exist yet; `load(url:)`
-    /// already reads it so that turning the picker on is a pure UI change.
+    /// Set by the toolbar ref picker. The view reloads on a change by
+    /// folding this into its `.task(id:)` key, so nothing here has to
+    /// trigger the reload itself.
     var selectedRef: String?
 
     /// The in-flight load, kept so a new one can cancel it.
@@ -61,7 +74,17 @@ final class DocumentViewModel {
     /// window showing the wrong thing.
     func load(url: URL) {
         loadTask?.cancel()
-        phase = .loading
+
+        // A first load has nothing to show, so it blanks to a spinner; a
+        // reload keeps the previous summary up (see `isReloading`). A
+        // reload *after a failure* blanks too -- there is no stale tree to
+        // preserve in that case, only an error card.
+        if case .loaded = phase {
+            isReloading = true
+        } else {
+            phase = .loading
+            isReloading = false
+        }
 
         // Read both inputs here, on the main actor, so the detached task
         // below captures two plain values instead of reaching back into
@@ -84,7 +107,12 @@ final class DocumentViewModel {
             // The FFI call cannot be interrupted mid-flight, so
             // cancellation is checked on the way out instead: a superseded
             // load must not publish its stale result over the newer one.
+            // A cancelled load leaves `isReloading` set on purpose: the
+            // load that superseded it is still running, and it is the one
+            // that will clear the flag.
             guard !Task.isCancelled, let self else { return }
+
+            self.isReloading = false
 
             switch result {
             case .success(let summary):
