@@ -168,11 +168,29 @@ pub struct SnapshotInfo {
     pub wrote_at: Option<String>,
 }
 
-/// Version metadata for an Icechunk repo, scoped to the latest snapshot on
-/// the default branch.
+/// Version metadata for an Icechunk repo, scoped to whichever ref (branch,
+/// tag, or bare snapshot) was previewed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VersionInfo {
+    /// Display name of the previewed ref: a branch name, a tag name, or a
+    /// snapshot id, depending on `ref_kind`. Named `branch` rather than
+    /// something ref-neutral to avoid disturbing existing callers/tests
+    /// that only ever previewed `main`; `ref_kind` disambiguates for
+    /// renderers that need to label it correctly.
     pub branch: String,
+    /// "branch", "tag", or "snapshot", labeling what kind of ref `branch`
+    /// names. `#[serde(default)]` so JSON produced before this field
+    /// existed still deserializes (as `None`, i.e. "assume branch").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ref_kind: Option<String>,
+    /// Every branch in the repo, sorted by name. `#[serde(default)]` keeps
+    /// pre-existing JSON fixtures/snapshots deserializable.
+    #[serde(default)]
+    pub branches: Vec<String>,
+    /// Every tag in the repo, sorted by name. `#[serde(default)]` keeps
+    /// pre-existing JSON fixtures/snapshots deserializable.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// Newest first; the tip snapshot is `ancestry[0]`.
     pub ancestry: Vec<SnapshotInfo>,
     /// `true` if the ancestry walk was capped before reaching the repo's

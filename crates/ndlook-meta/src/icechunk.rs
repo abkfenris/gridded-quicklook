@@ -1,10 +1,12 @@
 //! Icechunk repository metadata reader.
 //!
 //! Icechunk repos are version-controlled Zarr v3 hierarchies. This module
-//! opens a *local-filesystem* repo read-only, resolves the `main` branch to
-//! its tip snapshot, and turns that snapshot's node metadata into the same
-//! format-agnostic [`DatasetSummary`] the other readers produce — plus a
-//! [`VersionInfo`] describing the commit history.
+//! opens a *local-filesystem* repo read-only, resolves a ref — the `main`
+//! branch's tip by default, or any [`IcechunkRef`] (branch, tag, or bare
+//! snapshot) a caller names — to a snapshot, and turns that snapshot's node
+//! metadata into the same format-agnostic [`DatasetSummary`] the other
+//! readers produce — plus a [`VersionInfo`] describing the commit history
+//! and the repo's full branch/tag lists.
 //!
 //! Each node's `user_data` is verbatim the Zarr v3 `zarr.json` document that
 //! the writer stored, so the node conversion here reuses [`crate::zarr`]'s
@@ -38,7 +40,7 @@ pub fn is_icechunk_repo(path: &Path) -> bool {
 }
 
 #[cfg(feature = "icechunk")]
-pub use enabled::summarize_icechunk;
+pub use enabled::{IcechunkRef, summarize_icechunk, summarize_icechunk_at};
 
 #[cfg(feature = "icechunk")]
 mod enabled {
@@ -55,12 +57,68 @@ mod enabled {
     use crate::model::{DatasetSummary, GroupSummary, SnapshotInfo, SourceFormat, VersionInfo};
     use crate::zarr::build_v3_tree;
 
-    /// The branch previewed for a repo. Icechunk has no configurable default
-    /// branch (unlike git), so `main` is the only tip worth resolving.
+    /// The branch previewed for a repo when no [`IcechunkRef`] is given.
+    /// Icechunk has no configurable default branch (unlike git), so `main`
+    /// is the only tip worth resolving by default.
     const DEFAULT_BRANCH: &str = "main";
 
-    /// Maximum number of snapshots (including the tip) walked back from
-    /// `main`'s tip when building [`VersionInfo::ancestry`].
+    /// A ref into an Icechunk repo's version history that a caller wants to
+    /// preview: a branch tip, an immutable tag, or a specific snapshot.
+    ///
+    /// Mirrors the subset of [`IceVersionInfo`] meaningful for read-only
+    /// browsing; the `AsOf` (browse-by-timestamp) variant is omitted since
+    /// nothing in ndlook exposes that yet, and adding it later needs no
+    /// changes to the other variants.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum IcechunkRef {
+        Branch(String),
+        Tag(String),
+        Snapshot(String),
+    }
+
+    impl IcechunkRef {
+        /// The name shown to users: the branch/tag name, or the raw
+        /// snapshot id string. Used to fill [`VersionInfo::branch`] even
+        /// when the ref isn't actually a branch — see that field's doc
+        /// comment for why the field keeps its original name.
+        fn display_name(&self) -> &str {
+            match self {
+                IcechunkRef::Branch(name)
+                | IcechunkRef::Tag(name)
+                | IcechunkRef::Snapshot(name) => name,
+            }
+        }
+
+        /// Short label for [`VersionInfo::ref_kind`] and error messages.
+        fn kind(&self) -> &'static str {
+            match self {
+                IcechunkRef::Branch(_) => "branch",
+                IcechunkRef::Tag(_) => "tag",
+                IcechunkRef::Snapshot(_) => "snapshot",
+            }
+        }
+
+        /// Converts to the Icechunk crate's own ref type. A `Snapshot`'s id
+        /// string is parsed into a real [`SnapshotId`] here (rather than
+        /// left for `Repository::resolve_version` to reject) so a malformed
+        /// id produces a message pointing at the id itself, not an opaque
+        /// "not found" further down the pipeline.
+        fn to_ice_version(&self, path: &Path) -> Result<IceVersionInfo, MetaError> {
+            match self {
+                IcechunkRef::Branch(name) => Ok(IceVersionInfo::BranchTipRef(name.clone())),
+                IcechunkRef::Tag(name) => Ok(IceVersionInfo::TagRef(name.clone())),
+                IcechunkRef::Snapshot(id) => {
+                    let snapshot_id = SnapshotId::try_from(id.as_str()).map_err(|err| {
+                        invalid(path, format!("invalid snapshot id \"{id}\": {err}"))
+                    })?;
+                    Ok(IceVersionInfo::SnapshotId(snapshot_id))
+                }
+            }
+        }
+    }
+
+    /// Maximum number of snapshots (including the tip) walked back from the
+    /// resolved ref's tip when building [`VersionInfo::ancestry`].
     ///
     /// Each step is a `lookup_snapshot`, and an Icechunk snapshot file
     /// carries the metadata of *every* node in the hierarchy, so a repo with
@@ -75,13 +133,28 @@ mod enabled {
     /// Summarize the Zarr hierarchy at the tip of `main` in the Icechunk repo
     /// rooted at `path`, together with its commit history.
     ///
+    /// A thin wrapper over [`summarize_icechunk_at`] with `reference: None`,
+    /// kept so existing callers previewing the default branch don't need to
+    /// name it.
+    pub fn summarize_icechunk(path: &Path) -> Result<DatasetSummary, MetaError> {
+        summarize_icechunk_at(path, None)
+    }
+
+    /// Summarize the Zarr hierarchy at `reference` (or `main`'s tip when
+    /// `reference` is `None`) in the Icechunk repo rooted at `path`,
+    /// together with its commit history and the repo's full branch/tag
+    /// lists.
+    ///
     /// The repo is opened read-only against local-filesystem storage; no
     /// network backends are contacted and no chunk data is read.
     ///
     /// The whole async pipeline is driven by a private current-thread Tokio
     /// runtime created per call, so this stays an ordinary blocking function
     /// callable straight from the FFI layer.
-    pub fn summarize_icechunk(path: &Path) -> Result<DatasetSummary, MetaError> {
+    pub fn summarize_icechunk_at(
+        path: &Path,
+        reference: Option<&IcechunkRef>,
+    ) -> Result<DatasetSummary, MetaError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -89,10 +162,13 @@ mod enabled {
                 path: path.to_path_buf(),
                 source,
             })?;
-        runtime.block_on(summarize(path))
+        runtime.block_on(summarize(path, reference))
     }
 
-    async fn summarize(path: &Path) -> Result<DatasetSummary, MetaError> {
+    async fn summarize(
+        path: &Path,
+        reference: Option<&IcechunkRef>,
+    ) -> Result<DatasetSummary, MetaError> {
         let storage = icechunk::new_local_filesystem_storage(path)
             .await
             .map_err(|err| invalid(path, format!("cannot open Icechunk storage: {err}")))?;
@@ -100,10 +176,33 @@ mod enabled {
             .await
             .map_err(|err| invalid(path, format!("cannot open Icechunk repository: {err}")))?;
 
-        let tip = repo.lookup_branch(DEFAULT_BRANCH).await.map_err(|err| {
+        // `BTreeSet` already yields names in sorted order, matching
+        // `VersionInfo::branches`/`tags`'s documented ordering.
+        let branches: Vec<String> = repo
+            .list_branches()
+            .await
+            .map_err(|err| invalid(path, format!("cannot list branches: {err}")))?
+            .into_iter()
+            .collect();
+        let tags: Vec<String> = repo
+            .list_tags()
+            .await
+            .map_err(|err| invalid(path, format!("cannot list tags: {err}")))?
+            .into_iter()
+            .collect();
+
+        let default_ref = IcechunkRef::Branch(DEFAULT_BRANCH.to_owned());
+        let reference = reference.unwrap_or(&default_ref);
+        let ice_version = reference.to_ice_version(path)?;
+
+        let tip = repo.resolve_version(&ice_version).await.map_err(|err| {
             invalid(
                 path,
-                format!("cannot resolve branch \"{DEFAULT_BRANCH}\": {err}"),
+                format!(
+                    "cannot resolve {} \"{}\": {err}",
+                    reference.kind(),
+                    reference.display_name()
+                ),
             )
         })?;
 
@@ -127,7 +226,10 @@ mod enabled {
             format: SourceFormat::Icechunk,
             root,
             version_info: Some(VersionInfo {
-                branch: DEFAULT_BRANCH.to_owned(),
+                branch: reference.display_name().to_owned(),
+                ref_kind: Some(reference.kind().to_owned()),
+                branches,
+                tags,
                 ancestry,
                 truncated,
             }),

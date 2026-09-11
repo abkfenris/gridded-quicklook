@@ -24,7 +24,7 @@ fn plain_zarr_stores_are_not_icechunk_repos() {
 mod with_reader {
     use super::fixture;
 
-    use ndlook_meta::{SourceFormat, summarize_icechunk};
+    use ndlook_meta::{IcechunkRef, SourceFormat, summarize_icechunk, summarize_icechunk_at};
 
     /// Snapshot ids and commit timestamps are regenerated every time
     /// `mise run fixtures` runs, so they are redacted: the snapshot asserts
@@ -55,8 +55,15 @@ mod with_reader {
             .expect("an Icechunk summary always carries version info");
 
         assert_eq!(version.branch, "main");
+        assert_eq!(version.ref_kind.as_deref(), Some("branch"));
         assert_eq!(version.ancestry.len(), 3);
         assert!(!version.truncated);
+
+        // The fixture repo has exactly one branch (`main`) and one tag
+        // (`v1`, pointing at the "initial data" commit) — see
+        // `write_icechunk_fixture` in fixtures/generate.py.
+        assert_eq!(version.branches, vec!["main".to_owned()]);
+        assert_eq!(version.tags, vec!["v1".to_owned()]);
 
         // Newest first: the tip is the most recent commit.
         assert_eq!(
@@ -106,5 +113,77 @@ mod with_reader {
         assert_eq!(coord_names, vec!["time", "x"]);
         assert_eq!(data_var_names, vec!["salinity", "temperature"]);
         assert!(summary.root.children.is_empty());
+    }
+
+    /// `summarize_icechunk` is documented as a thin wrapper over
+    /// `summarize_icechunk_at(path, None)` that previews `main`'s tip; this
+    /// pins that equivalence down as a regression test.
+    ///
+    /// Compared via their JSON encoding rather than `PartialEq` directly:
+    /// the fixture's `_FillValue` attribute is `NaN`, and `NaN != NaN` under
+    /// `f64`'s `PartialEq`, which would make two structurally identical
+    /// summaries compare unequal.
+    #[test]
+    fn default_summary_matches_explicit_none_reference() {
+        let path = fixture("icechunk_repo.icechunk");
+        let via_wrapper = summarize_icechunk(&path).expect("summarize repo");
+        let via_at = summarize_icechunk_at(&path, None).expect("summarize repo");
+
+        assert_eq!(
+            serde_json::to_string(&via_wrapper).unwrap(),
+            serde_json::to_string(&via_at).unwrap()
+        );
+    }
+
+    /// Opening at the `v1` tag (created before the "update global attrs"
+    /// commit, see `write_icechunk_fixture` in fixtures/generate.py) should
+    /// yield the *older* tree state: no `revision_note` attribute, and an
+    /// ancestry that starts at "initial data" rather than "update global
+    /// attrs".
+    #[test]
+    fn opening_at_a_tag_yields_the_older_tree_state() {
+        let summary = summarize_icechunk_at(
+            &fixture("icechunk_repo.icechunk"),
+            Some(&IcechunkRef::Tag("v1".to_owned())),
+        )
+        .expect("summarize repo at tag v1");
+
+        let version = summary
+            .version_info
+            .as_ref()
+            .expect("an Icechunk summary always carries version info");
+
+        assert_eq!(version.branch, "v1");
+        assert_eq!(version.ref_kind.as_deref(), Some("tag"));
+        assert_eq!(version.branches, vec!["main".to_owned()]);
+        assert_eq!(version.tags, vec!["v1".to_owned()]);
+
+        // Only "initial data" and the repo-init snapshot precede the tag.
+        assert_eq!(version.ancestry.len(), 2);
+        assert_eq!(version.ancestry[0].message.as_deref(), Some("initial data"));
+        assert!(!version.truncated);
+
+        let attr_names: Vec<&str> = summary
+            .root
+            .attrs
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            !attr_names.contains(&"revision_note"),
+            "the v1 tag predates the commit that added revision_note, got {attr_names:?}"
+        );
+    }
+
+    /// Resolving a branch that doesn't exist should surface as a clean
+    /// `MetaError`, not a panic.
+    #[test]
+    fn opening_at_a_bogus_branch_errors_cleanly() {
+        let result = summarize_icechunk_at(
+            &fixture("icechunk_repo.icechunk"),
+            Some(&IcechunkRef::Branch("does-not-exist".to_owned())),
+        );
+
+        assert!(result.is_err(), "expected an error, got {result:?}");
     }
 }

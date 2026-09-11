@@ -165,6 +165,13 @@ expression: summary
   },
   "version_info": {
     "branch": "main",
+    "ref_kind": "branch",
+    "branches": [
+      "main"
+    ],
+    "tags": [
+      "v1"
+    ],
     "ancestry": [
       {
         "id": "[snapshot-id]",
