@@ -21,8 +21,11 @@ thiserror = "2"
 icechunk = { version = "2.2.0", default-features = false, features = [
     "object-store-fs",
 ], optional = true }
+# "macros" is only for `try_join!`, which the Icechunk reader uses to run
+# the branch and tag listings concurrently on its current-thread runtime.
 tokio = { version = "1", default-features = false, features = [
     "rt",
+    "macros",
 ], optional = true }
 gribberish = { version = "1.7", default-features = false }
 memmap2 = "0.9"

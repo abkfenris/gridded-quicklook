@@ -74,7 +74,7 @@ generation are usable without Xcode.
 | `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `ndlook-html`       |
 | `mise run icons`              | Regenerate the app icon and document badge from `docs/icon` (needs node + Playwright) |
 | `mise run xcodeproj`          | Generate `apple/ndLook.xcodeproj`             |
-| `mise run build-appex`        | `xcodebuild` the extension (needs full Xcode)           |
+| `mise run build-app`          | `xcodebuild` the app and extension (needs full Xcode)   |
 | `mise run install-dev`        | `scripts/install-dev.sh`                                |
 | `mise run preview`            | Reset/reload the Quick Look daemon                      |
 

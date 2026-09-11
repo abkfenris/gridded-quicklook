@@ -39,11 +39,15 @@ expression: summary
         "attrs": [
           [
             "calendar",
-            "proleptic_gregorian"
+            {
+              "Text": "proleptic_gregorian"
+            }
           ],
           [
             "units",
-            "days since 2024-01-01 00:00:00"
+            {
+              "Text": "days since 2024-01-01 00:00:00"
+            }
           ]
         ]
       },
@@ -62,15 +66,21 @@ expression: summary
         "attrs": [
           [
             "_FillValue",
-            null
+            {
+              "Float": "NaN"
+            }
           ],
           [
             "long_name",
-            "Cross-shore distance"
+            {
+              "Text": "Cross-shore distance"
+            }
           ],
           [
             "units",
-            "km"
+            {
+              "Text": "km"
+            }
           ]
         ]
       }
@@ -97,15 +107,21 @@ expression: summary
         "attrs": [
           [
             "_FillValue",
-            null
+            {
+              "Float": "NaN"
+            }
           ],
           [
             "long_name",
-            "Sea Water Salinity"
+            {
+              "Text": "Sea Water Salinity"
+            }
           ],
           [
             "units",
-            "psu"
+            {
+              "Text": "psu"
+            }
           ]
         ]
       },
@@ -130,15 +146,21 @@ expression: summary
         "attrs": [
           [
             "_FillValue",
-            null
+            {
+              "Float": "NaN"
+            }
           ],
           [
             "long_name",
-            "Sea Water Temperature"
+            {
+              "Text": "Sea Water Temperature"
+            }
           ],
           [
             "units",
-            "degC"
+            {
+              "Text": "degC"
+            }
           ]
         ]
       }
@@ -146,25 +168,36 @@ expression: summary
     "attrs": [
       [
         "conventions",
-        "CF-1.8"
+        {
+          "Text": "CF-1.8"
+        }
       ],
       [
         "institution",
-        "NERACOOS"
+        {
+          "Text": "NERACOOS"
+        }
       ],
       [
         "revision_note",
-        "updated global attrs"
+        {
+          "Text": "updated global attrs"
+        }
       ],
       [
         "title",
-        "ndlook simple fixture"
+        {
+          "Text": "ndlook simple fixture"
+        }
       ]
     ],
     "children": []
   },
   "version_info": {
     "branch": "main",
+    "ref_kind": "branch",
+    "branches": [],
+    "tags": [],
     "ancestry": [
       {
         "id": "[snapshot-id]",
