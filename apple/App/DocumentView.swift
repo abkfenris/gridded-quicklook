@@ -24,6 +24,16 @@ struct DocumentView: View {
     @State private var viewModel = DocumentViewModel()
     @State private var selection: SidebarItem?
 
+    /// Whether the sidebar column is showing.
+    ///
+    /// Bound rather than left to `NavigationSplitView` alone because the ref
+    /// picker lives in the sidebar's slice of the titlebar: with the sidebar
+    /// collapsed that slice is gone, and an item still asking for space
+    /// there gets swept into the toolbar's overflow menu. The picker has no
+    /// job with the sidebar closed -- there is no tree for a ref to apply
+    /// to -- so `SidebarView` uses this to withdraw it entirely.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+
     var body: some View {
         content
             // One `.task` keyed on both inputs, rather than a `.task` for
@@ -90,15 +100,26 @@ struct DocumentView: View {
             errorCard(message)
 
         case .loaded(let summary):
-            NavigationSplitView {
+            NavigationSplitView(columnVisibility: $columnVisibility) {
                 SidebarView(
                     root: summary.root,
                     refMenu: refMenu(for: summary),
                     selectedRef: $viewModel.selectedRef,
                     isReloading: viewModel.isReloading,
+                    // `.detailOnly` is the only case that hides the sidebar;
+                    // `.automatic` (the starting value), `.all` and
+                    // `.doubleColumn` all show it.
+                    isSidebarVisible: columnVisibility != .detailOnly,
                     selection: $selection
                 )
-                .navigationSplitViewColumnWidth(min: 200, ideal: 260)
+                // Taken from `RefMenuModel` rather than written literally:
+                // the minimum is what guarantees an open sidebar always has
+                // room for at least the icon-only ref control, so it has to
+                // stay tied to the arithmetic that decides that.
+                .navigationSplitViewColumnWidth(
+                    min: RefMenuModel.sidebarMinimumWidth,
+                    ideal: RefMenuModel.sidebarIdealWidth
+                )
             } detail: {
                 DetailView(summary: summary, selection: selection)
             }

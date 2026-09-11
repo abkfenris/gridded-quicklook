@@ -60,13 +60,18 @@ struct RefPicker: View {
         // the label instead, which `RefMenuModel.controlLabel` already caps.
         .menuStyle(.button)
         .buttonStyle(.borderless)
-        // A maximum, deliberately not a fixed width. A fixed frame *demands*
-        // its width whether or not the label needs it, which is how a 150pt
-        // frame ended up in overflow even on "main": the sidebar's slot
-        // between the traffic lights and the toggle is narrower than that.
-        // A maximum only clamps, so a short label still measures short and
-        // the item keeps fitting.
-        .frame(maxWidth: 120, alignment: .leading)
+        // No width frame at all, deliberately. There was a `maxWidth: 120`
+        // ceiling here as an overflow backstop; it was reserving the full
+        // 120pt regardless of the label, which is what left a visible gap
+        // between the control and the sidebar toggle. A toolbar measures an
+        // item's *intrinsic* width, and a maximum-width frame reports its
+        // maximum as the ideal -- so "at most 120" reads as "give me 120",
+        // with the short label leading-aligned in all that space.
+        //
+        // It is redundant now in any case: `RefMenuModel.presentation`
+        // collapses the label to an icon before the control can outgrow the
+        // slot, so the measured decision is the real protection and this
+        // frame was only ever a second, worse guess at the same thing.
         // Collapsed, the icon alone says only "a ref" -- the tooltip is
         // where the name goes so it stays discoverable.
         .help(

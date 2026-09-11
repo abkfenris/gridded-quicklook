@@ -171,6 +171,9 @@ struct SidebarView: View {
     /// reload: showing progress next to the control that caused it is what
     /// explains why the tree below has not changed yet.
     let isReloading: Bool
+    /// Whether the sidebar column is showing. When it is not, the toolbar
+    /// item withdraws its contents entirely -- see `toolbarContent`.
+    let isSidebarVisible: Bool
     @Binding var selection: SidebarItem?
 
     /// The sidebar column's current width, observed from the list's own
@@ -179,6 +182,18 @@ struct SidebarView: View {
     /// column underneath it is the closest available proxy, and it tracks
     /// live as the split divider is dragged.
     @State private var sidebarWidth: CGFloat = 0
+
+    /// True from the moment the width moves until it has been still for
+    /// `RefMenuModel.resizeSettleInterval`.
+    ///
+    /// While set, the ref control renders in its icon-only form regardless
+    /// of how much room there appears to be -- see the race described on
+    /// `RefMenuModel.presentation`.
+    @State private var isResizing = false
+
+    /// Cancelled and replaced on every width change, so the settle timer
+    /// only fires once the drag has actually stopped.
+    @State private var settleTask: Task<Void, Never>?
 
     var body: some View {
         list
@@ -207,32 +222,70 @@ struct SidebarView: View {
         // it. `.automatic` lets the item stay with its own column's toolbar
         // section.
         ToolbarItem(placement: .automatic) {
-            // One item holding both controls, not two: a second
-            // `ToolbarItem` is free to be reordered or swept into the
-            // overflow menu independently, and the spinner is only
-            // meaningful directly beside the control that started the
-            // reload.
-            HStack(spacing: 6) {
-                if let refMenu {
-                    // No width constraint here: `RefPicker` sets its own
-                    // ceiling, and a second competing frame would only
-                    // obscure which one the toolbar actually measures.
+            // Two gates, and they cover different things.
+            //
+            // `isSidebarVisible` is the fully-collapsed case, needed because
+            // the `GeometryReader` below stops reporting once the column is
+            // gone, leaving `sidebarWidth` stale at its last open value.
+            //
+            // The measured width is the *animating* case, and it is what
+            // fixes the overflow flash on expand: `columnVisibility` flips at
+            // the start of the opening animation, while the column is still
+            // only a few points wide. Rendering the real control then gets it
+            // measured against a slot that has not arrived yet, swept into
+            // the overflow menu, and relaid out a frame later -- the ">>"
+            // flicker. Deferring to the same `Slot` arithmetic that sizes the
+            // control means it appears only once the drawer is genuinely wide
+            // enough to hold it.
+            if isSidebarVisible,
+               let refMenu,
+               let presentation = RefMenuModel.presentation(
+                   label: refMenu.currentLabel,
+                   sidebarWidth: sidebarWidth,
+                   isResizing: isResizing
+               ) {
+                // One item holding both controls, not two: a second
+                // `ToolbarItem` is free to be reordered or swept into the
+                // overflow menu independently, and the spinner is only
+                // meaningful directly beside the control that started the
+                // reload.
+                HStack(spacing: 6) {
+                    // Leading, not trailing. Faded rather than removed, the
+                    // spinner always reserves its width, and on the trailing
+                    // side that width sat between the picker and the sidebar
+                    // toggle as a permanent gap. On the leading side the same
+                    // reservation falls in the space after the traffic
+                    // lights, where there is nothing to push apart.
+                    ProgressView()
+                        .controlSize(.small)
+                        .opacity(isReloading ? 1 : 0)
+
+                    // No width constraint here: `RefPicker` decides its own
+                    // size from the label, and a competing frame would only
+                    // obscure what the toolbar measures.
                     RefPicker(
                         menu: refMenu,
-                        presentation: RefMenuModel.presentation(
-                            label: refMenu.currentLabel,
-                            sidebarWidth: sidebarWidth
-                        ),
+                        presentation: presentation,
                         selectedRef: $selectedRef
                     )
                 }
-
-                // Always built, faded rather than removed: appearing and
-                // disappearing mid-reload is exactly the kind of churn that
-                // destabilizes the enclosing toolbar item.
-                ProgressView()
-                    .controlSize(.small)
-                    .opacity(isReloading ? 1 : 0)
+            } else {
+                // Nothing to show: contribute a zero-sized placeholder rather
+                // than the controls.
+                //
+                // Not `.hidden()` or `.opacity(0)` on the real content --
+                // both keep the view's size, and it is *size* the toolbar
+                // uses to decide an item does not fit and belongs in the
+                // overflow menu. An invisible control swept into overflow is
+                // the worst of both: still listed, still unreachable.
+                //
+                // Not an `EmptyView` either, and not dropping the
+                // `ToolbarItem`: an item that comes and goes gets torn out
+                // of the toolbar and is not reliably put back (see the
+                // note above). A zero-sized `Color.clear` keeps the item
+                // itself present and stable while giving the toolbar
+                // nothing to lay out.
+                Color.clear.frame(width: 0, height: 0)
             }
         }
     }
@@ -280,9 +333,31 @@ struct SidebarView: View {
             GeometryReader { proxy in
                 Color.clear
                     .onChange(of: proxy.size.width, initial: true) { _, width in
-                        sidebarWidth = width
+                        widthChanged(to: width)
                     }
             }
+        }
+    }
+
+    /// Records a new sidebar width and restarts the settle timer.
+    ///
+    /// `isResizing` is raised in the same update as the width, which is the
+    /// whole point: both land before the next render, so the very first
+    /// frame drawn at the new width is already the icon-only form. Raising
+    /// it a render later would leave exactly the window the race needs.
+    private func widthChanged(to width: CGFloat) {
+        sidebarWidth = width
+        isResizing = true
+
+        // Each change supersedes the last, so the timer measures quiet time
+        // rather than time since the drag began.
+        settleTask?.cancel()
+        settleTask = Task { @MainActor in
+            try? await Task.sleep(for: RefMenuModel.resizeSettleInterval)
+            // A cancelled task belongs to a superseded change; the one that
+            // replaced it owns clearing the flag.
+            guard !Task.isCancelled else { return }
+            isResizing = false
         }
     }
 

@@ -378,15 +378,13 @@ final class RefControlPresentationTests: XCTestCase {
     /// the system font's metrics (which vary by OS version and settings).
     private let measure: (String) -> CGFloat = { CGFloat($0.count) * 10 }
 
-    /// Everything the slot math subtracts before any text is considered.
-    private var reserved: CGFloat {
-        RefMenuModel.Slot.trafficLights
-            + RefMenuModel.Slot.sidebarToggle
-            + RefMenuModel.Slot.margins
-            + RefMenuModel.Slot.safety
-    }
+    /// Everything the slot math subtracts before any of the control is
+    /// considered. Read from the model so retuning `Slot` cannot leave these
+    /// tests asserting against stale arithmetic.
+    private var reserved: CGFloat { RefMenuModel.reservedWidth }
 
-    private func presentation(_ label: String, _ width: CGFloat) -> RefControlPresentation {
+    /// `nil` means "too narrow to draw the control at all".
+    private func presentation(_ label: String, _ width: CGFloat) -> RefControlPresentation? {
         RefMenuModel.presentation(label: label, sidebarWidth: width, measure: measure)
     }
 
@@ -394,8 +392,159 @@ final class RefControlPresentationTests: XCTestCase {
         XCTAssertEqual(presentation("main", 500), .fullLabel)
     }
 
-    func testNarrowSidebarCollapsesToIconOnly() {
-        XCTAssertEqual(presentation("main", 160), .iconOnly)
+    /// Narrower than the control itself: nothing is drawn, rather than an
+    /// icon that would not fit either.
+    func testNarrowSidebarShowsNothing() {
+        XCTAssertNil(presentation("main", 160))
+    }
+
+    /// The threshold that stops the overflow flash while the drawer opens.
+    /// Below it nothing renders; just above it the icon-only form appears.
+    func testMinimumSidebarWidthBoundary() {
+        let minimum = RefMenuModel.minimumSidebarWidth
+
+        XCTAssertNil(presentation("main", minimum), "a tie draws nothing")
+        XCTAssertNil(presentation("main", minimum - 1))
+        XCTAssertEqual(presentation("main", minimum + 1), .iconOnly)
+    }
+
+    /// The invariant behind the configured column minimum: if the sidebar is
+    /// open, the ref control is visible in *some* form. There must be no
+    /// width a user can drag to where the column is open but the slot has
+    /// nothing in it.
+    ///
+    /// Reads both bounds from the model, so raising the floor or retuning
+    /// `Slot` keeps this test meaningful instead of silently checking the
+    /// wrong number.
+    func testAnyOpenSidebarWidthShowsAtLeastTheIcon() {
+        let labels = [
+            "main",
+            "v1",
+            "YF19J4V0",
+            String(repeating: "x", count: RefMenuModel.controlLabelLimit),
+        ]
+
+        for width in stride(from: RefMenuModel.sidebarMinimumWidth, through: 800, by: 5) {
+            for label in labels {
+                XCTAssertNotNil(
+                    presentation(label, CGFloat(width)),
+                    "sidebar open at \(width) but nothing drawn for \(label)"
+                )
+            }
+        }
+    }
+
+    // MARK: Resizing
+
+    /// While the width is moving, the full label must never be chosen.
+    ///
+    /// The control on screen is always a render behind the width AppKit
+    /// measures it against, so mid-drag the only safe answer is the form
+    /// that fits at every allowed width.
+    func testResizingNeverShowsTheFullLabel() {
+        for width in stride(from: RefMenuModel.sidebarMinimumWidth, through: 900, by: 5) {
+            for label in ["main", "v1", "x"] {
+                XCTAssertEqual(
+                    RefMenuModel.presentation(
+                        label: label,
+                        sidebarWidth: CGFloat(width),
+                        isResizing: true,
+                        measure: measure
+                    ),
+                    .iconOnly,
+                    "full label offered mid-resize at \(width)"
+                )
+            }
+        }
+    }
+
+    /// Once the drag stops, the label comes back -- the downgrade is
+    /// temporary, not a permanent demotion.
+    func testFullLabelReturnsOnceStable() {
+        let width = RefMenuModel.sidebarIdealWidth
+
+        XCTAssertEqual(
+            RefMenuModel.presentation(
+                label: "main", sidebarWidth: width, isResizing: true, measure: measure
+            ),
+            .iconOnly
+        )
+        XCTAssertEqual(
+            RefMenuModel.presentation(
+                label: "main", sidebarWidth: width, isResizing: false, measure: measure
+            ),
+            .fullLabel
+        )
+    }
+
+    /// Resizing must not override the sub-minimum gate: dragging through a
+    /// width too narrow for anything still draws nothing, rather than an
+    /// icon with nowhere to sit.
+    func testResizingStillHidesBelowTheMinimum() {
+        for width in stride(from: 0.0, to: RefMenuModel.minimumSidebarWidth, by: 5.0) {
+            XCTAssertNil(
+                RefMenuModel.presentation(
+                    label: "main",
+                    sidebarWidth: CGFloat(width),
+                    isResizing: true,
+                    measure: measure
+                ),
+                "drew a control mid-drag at \(width)"
+            )
+        }
+    }
+
+    /// A simulated drag: a burst of widths with the flag raised, then the
+    /// settled frame. Every frame in the burst must be safe, and the label
+    /// may only reappear at the end.
+    func testSimulatedDragOnlyRegainsTheLabelAfterSettling() {
+        let widths = stride(from: 600.0, through: RefMenuModel.sidebarMinimumWidth, by: -7.0)
+        var results: [RefControlPresentation?] = []
+
+        for width in widths {
+            results.append(
+                RefMenuModel.presentation(
+                    label: "main", sidebarWidth: CGFloat(width), isResizing: true, measure: measure
+                )
+            )
+        }
+        XCTAssertFalse(results.contains(.fullLabel), "no frame during the drag may be full")
+        XCTAssertFalse(results.contains(nil), "every allowed width still shows the icon")
+
+        let settled = RefMenuModel.presentation(
+            label: "main",
+            sidebarWidth: RefMenuModel.sidebarMinimumWidth,
+            isResizing: false,
+            measure: measure
+        )
+        XCTAssertNotNil(settled, "the control is still there once the drag ends")
+    }
+
+    /// The floor has to clear the threshold, or the invariant above is only
+    /// true by luck.
+    func testConfiguredMinimumClearsTheIconFloor() {
+        XCTAssertGreaterThan(
+            RefMenuModel.sidebarMinimumWidth,
+            RefMenuModel.minimumSidebarWidth,
+            "an open sidebar could be too narrow to draw anything"
+        )
+        XCTAssertLessThan(
+            RefMenuModel.sidebarMinimumWidth,
+            RefMenuModel.sidebarIdealWidth,
+            "the minimum must leave room to narrow the sidebar at all"
+        )
+    }
+
+    /// Every intermediate width an opening drawer passes through must be
+    /// safe: either nothing, or a form that fits. Rendering the full control
+    /// early is what produced the ">>" flash.
+    func testEveryWidthDuringExpansionIsSafe() {
+        for width in stride(from: 0.0, through: 260.0, by: 1.0) {
+            let result = presentation("YF19J4V0", CGFloat(width))
+            if width < RefMenuModel.minimumSidebarWidth {
+                XCTAssertNil(result, "drew a control at \(width), before there was room")
+            }
+        }
     }
 
     /// At exactly the available width the item is already at the edge of
@@ -414,9 +563,9 @@ final class RefControlPresentationTests: XCTestCase {
     /// expanding is the safe direction; starting expanded risks an overflow
     /// that does not undo itself.
     func testUnknownWidthCollapses() {
-        XCTAssertEqual(presentation("main", 0), .iconOnly)
-        XCTAssertEqual(presentation("main", -100), .iconOnly)
-        XCTAssertEqual(presentation("main", reserved), .iconOnly, "nothing left for the control")
+        XCTAssertNil(presentation("main", 0))
+        XCTAssertNil(presentation("main", -100))
+        XCTAssertNil(presentation("main", reserved), "nothing left for the control")
     }
 
     /// A longer ref collapses at a width where a shorter one still fits --
@@ -436,25 +585,39 @@ final class RefControlPresentationTests: XCTestCase {
     /// "main" needs 40 and fits; an 8-character snapshot id needs 80 and
     /// does not -- which is exactly the case that used to overflow.
     func testDefaultWidthKeepsMainFullAndCollapsesSnapshots() {
-        XCTAssertEqual(presentation("main", 260), .fullLabel)
-        XCTAssertEqual(presentation("v1", 260), .fullLabel)
-        XCTAssertEqual(presentation("YF19J4V0", 260), .iconOnly)
+        let ideal = RefMenuModel.sidebarIdealWidth
+
+        XCTAssertEqual(presentation("main", ideal), .fullLabel)
+        XCTAssertEqual(presentation("v1", ideal), .fullLabel)
+        XCTAssertEqual(presentation("YF19J4V0", ideal), .iconOnly)
     }
 
     /// Dragging the divider narrower must collapse the control before it
     /// can ever be too wide: the decision is monotonic in width, so there is
     /// no width at which a label fits but a narrower one does not.
     func testCollapseIsMonotonicInWidth() {
-        var sawIconOnly = false
-        for width in stride(from: 400.0, through: 100.0, by: -5.0) {
-            let result = presentation("main", CGFloat(width))
-            if result == .iconOnly {
-                sawIconOnly = true
-            } else {
-                XCTAssertFalse(sawIconOnly, "expanded again at \(width) after collapsing")
+        // Ranked worst-to-best, so the sequence must never improve as the
+        // sidebar narrows: full label -> icon only -> nothing.
+        func rank(_ p: RefControlPresentation?) -> Int {
+            switch p {
+            case nil: 0
+            case .iconOnly: 1
+            case .fullLabel: 2
             }
         }
-        XCTAssertTrue(sawIconOnly, "narrow enough widths must collapse")
+
+        var previous = Int.max
+        var sawIconOnly = false
+        var sawHidden = false
+        for width in stride(from: 400.0, through: 0.0, by: -5.0) {
+            let result = presentation("main", CGFloat(width))
+            XCTAssertLessThanOrEqual(rank(result), previous, "improved at \(width) as it narrowed")
+            previous = rank(result)
+            if result == .iconOnly { sawIconOnly = true }
+            if result == nil { sawHidden = true }
+        }
+        XCTAssertTrue(sawIconOnly, "some width must collapse to the icon")
+        XCTAssertTrue(sawHidden, "some width must drop the control entirely")
     }
 
     /// The production measurer is font-dependent, so it is checked for
@@ -475,7 +638,7 @@ final class RefControlPresentationTests: XCTestCase {
     /// pointless) and an 8-character snapshot id must collapse (or it
     /// overflows, which is the bug).
     func testRealMeasurerMatchesObservedBehaviorAtDefaultWidth() {
-        let defaultSidebar: CGFloat = 260
+        let defaultSidebar = RefMenuModel.sidebarIdealWidth
 
         XCTAssertEqual(
             RefMenuModel.presentation(label: "main", sidebarWidth: defaultSidebar),
@@ -494,7 +657,7 @@ final class RefControlPresentationTests: XCTestCase {
     /// Guards the clearance the calibration relies on, so a future tweak to
     /// `Slot` cannot silently land right on the boundary.
     func testCalibrationKeepsClearanceOnBothSides() {
-        let available = 260 - reserved
+        let available = RefMenuModel.sidebarIdealWidth - reserved
         let main = RefMenuModel.measureLabel("main") + RefMenuModel.Slot.controlChrome
         let snapshot = RefMenuModel.measureLabel("YF19J4V0") + RefMenuModel.Slot.controlChrome
 

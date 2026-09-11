@@ -252,30 +252,96 @@ struct RefMenuModel: Equatable {
         static let controlChrome: CGFloat = 45
     }
 
-    /// Decides whether the ref name fits beside the icon, given how wide the
-    /// sidebar column currently is.
+    /// Everything the slot math subtracts before any of the control is
+    /// considered.
+    static let reservedWidth = Slot.trafficLights
+        + Slot.sidebarToggle
+        + Slot.margins
+        + Slot.safety
+
+    /// The narrowest sidebar at which the control can appear at all -- the
+    /// point where even the icon-only form stops fitting.
+    static let minimumSidebarWidth = reservedWidth + Slot.controlChrome
+
+    /// The narrowest the sidebar column may be dragged, wired into
+    /// `navigationSplitViewColumnWidth` in `DocumentView`.
+    ///
+    /// Deliberately above `minimumSidebarWidth`, which is what makes "the
+    /// sidebar is open" imply "at least the icon is visible": with the floor
+    /// below that threshold there was a band where the column was open but
+    /// the control had nowhere to go, so it rendered nothing at all.
+    ///
+    /// Raising the floor was chosen over trimming `Slot.safety` to reach the
+    /// old 200pt minimum. The stage-14 calibration only brackets the true
+    /// reserved width to `(153, 186]`; a smaller safety term would have this
+    /// code believe the control fits at 200pt even when the real reserve is
+    /// at the high end of that range, and being wrong that way means sticky
+    /// overflow rather than a slightly narrower minimum. 15-odd points of
+    /// floor is the cheaper thing to spend.
+    ///
+    /// These two live beside the slot arithmetic rather than at the call
+    /// site precisely so they cannot drift apart from it.
+    static let sidebarMinimumWidth: CGFloat = 220
+
+    /// The sidebar's preferred width, and the width the `Slot` constants
+    /// were calibrated against.
+    static let sidebarIdealWidth: CGFloat = 260
+
+    /// How long the sidebar's width must hold still before the full label is
+    /// allowed back.
+    ///
+    /// Long enough to outlast a drag's frame-to-frame jitter, short enough
+    /// that letting go feels immediate.
+    static let resizeSettleInterval: Duration = .milliseconds(200)
+
+    /// Decides how to draw the ref control, given how wide the sidebar
+    /// column currently is -- or `nil` when it should not be drawn at all.
+    ///
+    /// The `nil` case is what keeps the control from flashing into the
+    /// overflow menu while the sidebar drawer opens. Expanding animates the
+    /// column's width up from nothing, so for the first frames the slot is
+    /// far too narrow; a control rendered then is measured, judged not to
+    /// fit, and swept into overflow before the animation finishes. Widths
+    /// below `minimumSidebarWidth` therefore render nothing, and the
+    /// control appears only once there is genuinely room for it.
     ///
     /// `measure` is injectable so tests can pin down the arithmetic with a
     /// predictable font-free stand-in; production uses `measureLabel`.
     ///
-    /// Ties go to `.iconOnly`. At exactly the available width the item is
-    /// already at the edge of what the toolbar will accept, and being one
-    /// point out is not a clipped label but a vanished control.
+    /// Ties go the conservative way at both thresholds. At exactly the
+    /// available width the item is already at the edge of what the toolbar
+    /// will accept, and being one point out is not a clipped label but a
+    /// vanished control.
+    /// `isResizing` forces the icon-only form while the column's width is in
+    /// motion, and it is a fix for a race rather than a stylistic choice.
+    ///
+    /// The width this function is given arrives through SwiftUI state: the
+    /// `GeometryReader` reports a width, that write schedules a re-render,
+    /// and only then does AppKit re-measure the toolbar. Drag the divider
+    /// faster than that round trip and the control still on screen was sized
+    /// for a slot that has already shrunk -- it is measured too wide, swept
+    /// into the overflow menu, and stays there. No safety margin can close
+    /// that gap, because the gap is in time, not in points.
+    ///
+    /// Downgrading the instant the width moves sidesteps it: the icon-only
+    /// form fits at every width the column is allowed to have (see
+    /// `sidebarMinimumWidth`), so whatever width AppKit ends up measuring
+    /// against, the answer is the same. The full label returns once the
+    /// width has been still for `resizeSettleInterval`.
     static func presentation(
         label: String,
         sidebarWidth: CGFloat,
+        isResizing: Bool = false,
         measure: (String) -> CGFloat = measureLabel
-    ) -> RefControlPresentation {
-        let available = sidebarWidth
-            - Slot.trafficLights
-            - Slot.sidebarToggle
-            - Slot.margins
-            - Slot.safety
+    ) -> RefControlPresentation? {
+        let available = sidebarWidth - reservedWidth
 
         // Also catches the first layout pass, where the width is still 0.
-        // Starting collapsed and expanding is the safe direction to be
-        // wrong in; starting expanded risks an overflow we cannot undo.
-        guard available > 0 else { return .iconOnly }
+        // Checked before `isResizing` so a drag through the sub-minimum
+        // range still renders nothing rather than an icon with no room.
+        guard available > Slot.controlChrome else { return nil }
+
+        guard !isResizing else { return .iconOnly }
 
         return measure(label) + Slot.controlChrome < available ? .fullLabel : .iconOnly
     }
