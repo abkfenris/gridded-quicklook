@@ -44,6 +44,7 @@
 			<array>
 				<string>com.alexkerney.ndlook.netcdf</string>
 				<string>com.alexkerney.ndlook.hdf5</string>
+				<string>com.alexkerney.ndlook.grib</string>
 				<string>com.alexkerney.ndlook.zarr</string>
 				<string>com.alexkerney.ndlook.icechunk</string>
 			</array>

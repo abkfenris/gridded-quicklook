@@ -77,4 +77,5 @@ apple/*.xcodeproj
 .DS_Store
 fixtures/data/
 fixtures/reference/
+fixtures/samples/
 apple/include/

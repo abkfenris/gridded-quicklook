@@ -36,4 +36,8 @@ pub enum MetaError {
     /// repository handle, resolving a branch or snapshot, or listing nodes.
     #[error("cannot read Icechunk repository {path}: {message}")]
     Icechunk { path: PathBuf, message: String },
+    /// The file was routed to the GRIB reader but holds no readable
+    /// messages.
+    #[error("cannot read GRIB file {path}: {message}")]
+    Grib { path: PathBuf, message: String },
 }

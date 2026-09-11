@@ -1,0 +1,461 @@
+---
+source: crates/ndlook-meta/tests/grib_snapshots.rs
+expression: summary
+---
+{
+  "format": "Grib",
+  "root": {
+    "name": "",
+    "dims": [
+      {
+        "name": "latitude",
+        "size": 721,
+        "is_unlimited": false
+      },
+      {
+        "name": "longitude",
+        "size": 1440,
+        "is_unlimited": false
+      }
+    ],
+    "coords": [
+      {
+        "name": "heightAboveGround",
+        "dtype": "float64",
+        "dims": [],
+        "shape": [],
+        "attrs": [
+          [
+            "units",
+            "m"
+          ]
+        ],
+        "preview": "2.0"
+      },
+      {
+        "name": "heightAboveGround_2",
+        "dtype": "float64",
+        "dims": [],
+        "shape": [],
+        "attrs": [
+          [
+            "units",
+            "m"
+          ]
+        ],
+        "preview": "10.0"
+      },
+      {
+        "name": "isobaricInhPa",
+        "dtype": "float64",
+        "dims": [],
+        "shape": [],
+        "attrs": [
+          [
+            "units",
+            "hPa"
+          ]
+        ],
+        "preview": "500.0"
+      },
+      {
+        "name": "latitude",
+        "dtype": "float64",
+        "dims": [
+          "latitude"
+        ],
+        "shape": [
+          721
+        ],
+        "attrs": [
+          [
+            "units",
+            "degrees_north"
+          ]
+        ],
+        "preview": "90.0 89.75 89.5 ... -90.0"
+      },
+      {
+        "name": "longitude",
+        "dtype": "float64",
+        "dims": [
+          "longitude"
+        ],
+        "shape": [
+          1440
+        ],
+        "attrs": [
+          [
+            "units",
+            "degrees_east"
+          ]
+        ],
+        "preview": "0.0 0.25 0.5 ... 359.75"
+      },
+      {
+        "name": "step",
+        "dtype": "timedelta64[ns]",
+        "dims": [],
+        "shape": [],
+        "attrs": [
+          [
+            "units",
+            "hours"
+          ]
+        ],
+        "preview": "3.0"
+      },
+      {
+        "name": "time",
+        "dtype": "datetime64[ns]",
+        "dims": [],
+        "shape": [],
+        "attrs": [],
+        "preview": "2026-01-01 00:00:00 UTC"
+      }
+    ],
+    "data_vars": [
+      {
+        "name": "hgt",
+        "dtype": "float64",
+        "dims": [
+          "latitude",
+          "longitude"
+        ],
+        "shape": [
+          721,
+          1440
+        ],
+        "attrs": [
+          [
+            "long_name",
+            "geopotentialheight"
+          ],
+          [
+            "units",
+            "gpm"
+          ],
+          [
+            "coordinates",
+            "time step isobaricInhPa"
+          ],
+          [
+            "GRIB_shortName",
+            "HGT"
+          ],
+          [
+            "GRIB_typeOfLevel",
+            "isobaricInhPa"
+          ],
+          [
+            "GRIB_stepType",
+            "instant"
+          ],
+          [
+            "GRIB_gridType",
+            "regular_ll"
+          ],
+          [
+            "GRIB_discipline",
+            "meteorological"
+          ],
+          [
+            "GRIB_parameterCategory",
+            "mass"
+          ],
+          [
+            "GRIB_parameterNumber",
+            5
+          ],
+          [
+            "GRIB_dataCompression",
+            "3: Complex Grid Packing with Spatial Differencing"
+          ],
+          [
+            "GRIB_numberOfMessages",
+            1
+          ],
+          [
+            "GRIB_proj",
+            "+proj=latlon +a=6367470 +b=6367470"
+          ]
+        ]
+      },
+      {
+        "name": "tmp_heightAboveGround",
+        "dtype": "float64",
+        "dims": [
+          "latitude",
+          "longitude"
+        ],
+        "shape": [
+          721,
+          1440
+        ],
+        "attrs": [
+          [
+            "long_name",
+            "temperature"
+          ],
+          [
+            "units",
+            "K"
+          ],
+          [
+            "coordinates",
+            "time step heightAboveGround"
+          ],
+          [
+            "GRIB_shortName",
+            "TMP"
+          ],
+          [
+            "GRIB_typeOfLevel",
+            "heightAboveGround"
+          ],
+          [
+            "GRIB_stepType",
+            "instant"
+          ],
+          [
+            "GRIB_gridType",
+            "regular_ll"
+          ],
+          [
+            "GRIB_discipline",
+            "meteorological"
+          ],
+          [
+            "GRIB_parameterCategory",
+            "temperature"
+          ],
+          [
+            "GRIB_parameterNumber",
+            0
+          ],
+          [
+            "GRIB_dataCompression",
+            "3: Complex Grid Packing with Spatial Differencing"
+          ],
+          [
+            "GRIB_numberOfMessages",
+            1
+          ],
+          [
+            "GRIB_proj",
+            "+proj=latlon +a=6367470 +b=6367470"
+          ]
+        ]
+      },
+      {
+        "name": "tmp_isobaricInhPa",
+        "dtype": "float64",
+        "dims": [
+          "latitude",
+          "longitude"
+        ],
+        "shape": [
+          721,
+          1440
+        ],
+        "attrs": [
+          [
+            "long_name",
+            "temperature"
+          ],
+          [
+            "units",
+            "K"
+          ],
+          [
+            "coordinates",
+            "time step isobaricInhPa"
+          ],
+          [
+            "GRIB_shortName",
+            "TMP"
+          ],
+          [
+            "GRIB_typeOfLevel",
+            "isobaricInhPa"
+          ],
+          [
+            "GRIB_stepType",
+            "instant"
+          ],
+          [
+            "GRIB_gridType",
+            "regular_ll"
+          ],
+          [
+            "GRIB_discipline",
+            "meteorological"
+          ],
+          [
+            "GRIB_parameterCategory",
+            "temperature"
+          ],
+          [
+            "GRIB_parameterNumber",
+            0
+          ],
+          [
+            "GRIB_dataCompression",
+            "3: Complex Grid Packing with Spatial Differencing"
+          ],
+          [
+            "GRIB_numberOfMessages",
+            1
+          ],
+          [
+            "GRIB_proj",
+            "+proj=latlon +a=6367470 +b=6367470"
+          ]
+        ]
+      },
+      {
+        "name": "ugrd",
+        "dtype": "float64",
+        "dims": [
+          "latitude",
+          "longitude"
+        ],
+        "shape": [
+          721,
+          1440
+        ],
+        "attrs": [
+          [
+            "long_name",
+            "ucomponentwindspeed"
+          ],
+          [
+            "units",
+            "ms-1"
+          ],
+          [
+            "coordinates",
+            "time step heightAboveGround_2"
+          ],
+          [
+            "GRIB_shortName",
+            "UGRD"
+          ],
+          [
+            "GRIB_typeOfLevel",
+            "heightAboveGround"
+          ],
+          [
+            "GRIB_stepType",
+            "instant"
+          ],
+          [
+            "GRIB_gridType",
+            "regular_ll"
+          ],
+          [
+            "GRIB_discipline",
+            "meteorological"
+          ],
+          [
+            "GRIB_parameterCategory",
+            "momentum"
+          ],
+          [
+            "GRIB_parameterNumber",
+            2
+          ],
+          [
+            "GRIB_dataCompression",
+            "3: Complex Grid Packing with Spatial Differencing"
+          ],
+          [
+            "GRIB_numberOfMessages",
+            1
+          ],
+          [
+            "GRIB_proj",
+            "+proj=latlon +a=6367470 +b=6367470"
+          ]
+        ]
+      },
+      {
+        "name": "vgrd",
+        "dtype": "float64",
+        "dims": [
+          "latitude",
+          "longitude"
+        ],
+        "shape": [
+          721,
+          1440
+        ],
+        "attrs": [
+          [
+            "long_name",
+            "vcomponentwindspeed"
+          ],
+          [
+            "units",
+            "ms-1"
+          ],
+          [
+            "coordinates",
+            "time step heightAboveGround_2"
+          ],
+          [
+            "GRIB_shortName",
+            "VGRD"
+          ],
+          [
+            "GRIB_typeOfLevel",
+            "heightAboveGround"
+          ],
+          [
+            "GRIB_stepType",
+            "instant"
+          ],
+          [
+            "GRIB_gridType",
+            "regular_ll"
+          ],
+          [
+            "GRIB_discipline",
+            "meteorological"
+          ],
+          [
+            "GRIB_parameterCategory",
+            "momentum"
+          ],
+          [
+            "GRIB_parameterNumber",
+            3
+          ],
+          [
+            "GRIB_dataCompression",
+            "3: Complex Grid Packing with Spatial Differencing"
+          ],
+          [
+            "GRIB_numberOfMessages",
+            1
+          ],
+          [
+            "GRIB_proj",
+            "+proj=latlon +a=6367470 +b=6367470"
+          ]
+        ]
+      }
+    ],
+    "attrs": [
+      [
+        "GRIB_edition",
+        2
+      ],
+      [
+        "ndlook:message_count",
+        5
+      ]
+    ],
+    "children": []
+  }
+}

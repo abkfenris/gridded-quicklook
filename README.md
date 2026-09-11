@@ -2,7 +2,7 @@
 
 Quick Look for n-dimensional labeled arrays.
 
-A macOS Quick Look app extension that previews gridded scientific data (NetCDF/HDF5 files, Zarr stores, and Icechunk repositories) as an
+A macOS Quick Look app extension that previews gridded scientific data (NetCDF/HDF5 and GRIB files, Zarr stores, and Icechunk repositories) as an
 xarray-style dataset repr.
 
 ![Quick Look previewing an Icechunk repository: dimensions, coordinates, data variables, and attributes in xarray's repr style, with the repo's branch, snapshot, and commit ancestry below](docs/quicklook-icechunk.png)
@@ -19,15 +19,18 @@ commit history of their `main` branch.
 
 | Kind             | Format               | Recognized by                                   | Notes                                          |
 | ---------------- | -------------------- | ----------------------------------------------- | ---------------------------------------------- |
-| File             | NetCDF-3 / NetCDF-4  | `.nc`, `.nc4`, `.cdf`                           | Groups (DataTree) supported                    |
-| File             | HDF5                 | `.h5`, `.hdf5`, `.he5`                          | Same netCDF-4 reader; badge says HDF5 when the file lacks netCDF-4's markers |
+| File             | NetCDF-3 / NetCDF-4  | `CDF` / HDF5 signature, or `.nc`, `.nc4`, `.cdf` | Groups (DataTree) supported                    |
+| File             | HDF5                 | HDF5 signature, or `.h5`, `.hdf5`, `.he5`        | Same netCDF-4 reader; badge says HDF5 when the file lacks netCDF-4's markers |
+| File             | GRIB1 / GRIB2        | `GRIB` signature, or `.grib`, `.grib2`, `.grb`, `.grb2`, `.gb2` | Messages regrouped into cfgrib-style variables; leftovers land in an `unaligned` group |
 | Directory store  | Zarr v2              | `.zgroup` / `.zarray` / `.zmetadata` at the root | Consolidated metadata used when present        |
 | Directory store  | Zarr v3              | `zarr.json` at the root                          | Directory tree walked node by node             |
 | Directory store  | Icechunk (spec v1/v2) | `snapshots/` plus `refs/` or `repo` at the root | Tip of `main`, plus its snapshot ancestry      |
 
-Directory stores are dispatched on their **contents**, not their name, so a
-store called anything at all previews correctly once Quick Look hands it
-over. For the Finder to offer a preview in the first place, though, the
+Both files and directory stores are dispatched on their **contents**, not
+their name: a file is sniffed for the classic-netCDF, HDF5, or GRIB signature
+(the extension list is only a fallback, which matters most for GRIB — NCEP
+publishes its products with no extension at all), and a store called anything at all
+previews correctly once Quick Look hands it over. For the Finder to offer a preview in the first place, though, the
 directory needs a recognized extension: the app declares `com.alexkerney.ndlook.zarr`
 (`.zarr`) and `com.alexkerney.ndlook.icechunk` (`.icechunk`) as exported UTIs
 conforming to `com.apple.package`.
@@ -40,7 +43,7 @@ conforming to `com.apple.package`.
 | `crates/ndlook-html`  | Renders a `DatasetSummary` as a self-contained HTML document      |
 | `crates/ndlook-ffi`   | C ABI (`staticlib`) linked into the app extension                 |
 | `apple/`               | XcodeGen spec, the host app, and the Quick Look preview extension |
-| `fixtures/`            | Fixture generator (`generate.py`); its output is not committed    |
+| `fixtures/`            | Fixture generator (`generate.py`) and sample downloader (`download_samples.py`); neither's output is committed |
 
 The Icechunk reader lives behind `ndlook-meta`'s non-default `icechunk`
 cargo feature (it pulls in a sizable dependency tree); `ndlook-ffi` enables
@@ -63,11 +66,13 @@ generation are usable without Xcode.
 
 | Task                          | What it does                                            |
 | ----------------------------- | ------------------------------------------------------- |
-| `mise run test`               | Regenerate fixtures, then `cargo test --workspace`      |
+| `mise run test`               | Regenerate fixtures and samples, then `cargo test --workspace` |
 | `mise run lint`               | `cargo fmt --check` + clippy                            |
 | `mise run hooks`              | `prek run --all-files`                                  |
 | `mise run fixtures`           | Generate `fixtures/data` + `fixtures/reference` (untracked) |
+| `mise run samples`            | Download `fixtures/samples` — real NOAA GRIB2 messages (untracked, needs network) |
 | `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `ndlook-html`       |
+| `mise run icons`              | Regenerate the app icon and document badge from `docs/icon` (needs node + Playwright) |
 | `mise run xcodeproj`          | Generate `apple/ndLook.xcodeproj`             |
 | `mise run build-appex`        | `xcodebuild` the extension (needs full Xcode)           |
 | `mise run install-dev`        | `scripts/install-dev.sh`                                |
