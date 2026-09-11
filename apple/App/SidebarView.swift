@@ -158,12 +158,64 @@ struct SidebarNode: Identifiable, Hashable {
 
 // MARK: - View
 
-/// The dataset's structure as a selectable outline.
+/// The dataset's structure as a selectable outline, with the Icechunk ref
+/// picker in the sidebar's section of the window's titlebar.
 struct SidebarView: View {
     let root: GroupSummary
+    /// The repository's version history, or `nil` for the formats that have
+    /// none -- which is every format but Icechunk. `nil` contributes no
+    /// toolbar item at all, leaving the titlebar with just the toggle.
+    let versionInfo: VersionInfo?
+    @Binding var selectedRef: String?
+    /// Drives the spinner beside the picker. It belongs to this view rather
+    /// than to the window because the ref picker is what triggers the
+    /// reload: showing progress next to the control that caused it is what
+    /// explains why the tree below has not changed yet.
+    let isReloading: Bool
     @Binding var selection: SidebarItem?
 
     var body: some View {
+        list
+            .toolbar { toolbarContent }
+    }
+
+    /// The ref picker.
+    ///
+    /// Declared on the sidebar column's content deliberately: items
+    /// declared here disappear when the sidebar collapses, which is the
+    /// behavior we want for the picker specifically -- a collapsed sidebar
+    /// has no tree for a ref to apply to.
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if let versionInfo {
+            // `.automatic`, not `.navigation`: `.navigation` names the
+            // window's title area, which is on the detail side of the
+            // split, so it drags the item across the divider regardless of
+            // which column declared it. `.automatic` lets the item stay
+            // with its own column's toolbar section.
+            ToolbarItem(placement: .automatic) {
+                // One item holding both controls, not two: a second
+                // `ToolbarItem` is free to be reordered or swept into the
+                // overflow menu independently, and the spinner is only
+                // meaningful directly beside the control that started the
+                // reload.
+                HStack(spacing: 6) {
+                    RefPicker(versionInfo: versionInfo, selectedRef: $selectedRef)
+                        // Titlebar width is scarce and a ref name can be
+                        // arbitrarily long; the picker truncates in the
+                        // middle rather than pushing the toggle around.
+                        .frame(maxWidth: 200)
+
+                    if isReloading {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+            }
+        }
+    }
+
+    private var list: some View {
         List(selection: $selection) {
             // The root group gets its own row, above and outside the
             // sections, so its global attributes are reachable. Its

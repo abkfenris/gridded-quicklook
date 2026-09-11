@@ -45,7 +45,6 @@ struct DocumentView: View {
             // name, so it belongs beside the title rather than in it. Empty
             // until the summary lands, which reads as "not known yet".
             .navigationSubtitle(formatLabel)
-            .toolbar { toolbarContent }
     }
 
     /// What a reload depends on. A change to either field is a different
@@ -55,38 +54,13 @@ struct DocumentView: View {
         let ref: String?
     }
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // Only Icechunk repos have refs to choose between; every other
-        // format loads exactly one thing, so the control would be an
-        // always-disabled decoration.
-        if let versionInfo = icechunkVersionInfo {
-            ToolbarItem(placement: .primaryAction) {
-                RefPicker(versionInfo: versionInfo, selectedRef: $viewModel.selectedRef)
-            }
-        }
-
-        // Shown during a ref switch, when the window deliberately keeps the
-        // previous tree on screen (see `DocumentViewModel.isReloading`) and
-        // so has no other sign that anything is happening.
-        if viewModel.isReloading {
-            ToolbarItem(placement: .automatic) {
-                ProgressView()
-                    .controlSize(.small)
-            }
-        }
-    }
-
-    /// The loaded summary's version history, if it has one.
+    /// A summary's version history, if the format has one.
     ///
     /// Checks the format as well as the presence of `versionInfo`: the two
     /// always agree today, but the format is the real condition being
     /// expressed and reading it here keeps that explicit.
-    private var icechunkVersionInfo: VersionInfo? {
-        guard case .loaded(let summary) = viewModel.phase, summary.format == .icechunk else {
-            return nil
-        }
-        return summary.versionInfo
+    private func versionInfo(of summary: DatasetSummary) -> VersionInfo? {
+        summary.format == .icechunk ? summary.versionInfo : nil
     }
 
     @ViewBuilder
@@ -104,8 +78,14 @@ struct DocumentView: View {
 
         case .loaded(let summary):
             NavigationSplitView {
-                SidebarView(root: summary.root, selection: $selection)
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 260)
+                SidebarView(
+                    root: summary.root,
+                    versionInfo: versionInfo(of: summary),
+                    selectedRef: $viewModel.selectedRef,
+                    isReloading: viewModel.isReloading,
+                    selection: $selection
+                )
+                .navigationSplitViewColumnWidth(min: 200, ideal: 260)
             } detail: {
                 DetailView(summary: summary, selection: selection)
             }

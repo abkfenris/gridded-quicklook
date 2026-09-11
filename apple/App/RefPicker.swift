@@ -2,13 +2,16 @@
 //  RefPicker.swift
 //  ndLook
 //
-//  The toolbar control for choosing which version of an Icechunk
-//  repository to view: a branch, a tag, or a bare snapshot from the
-//  ancestry of whatever is currently loaded.
+//  The control for choosing which version of an Icechunk repository to
+//  view: a branch, a tag, or a bare snapshot from the ancestry of whatever
+//  is currently loaded.
 //
 //  Only Icechunk has version history, so this is the one piece of the UI
-//  that is format-specific; `DocumentView` puts it in the toolbar only when
-//  the loaded summary carries a `VersionInfo`.
+//  that is format-specific; `SidebarView` contributes it to the sidebar's
+//  section of the titlebar, and only when the loaded summary carries a
+//  `VersionInfo`. It belongs on the sidebar side because what it changes is
+//  the tree directly beneath it -- the ref decides which variables exist at
+//  all.
 //
 
 import Foundation
@@ -82,8 +85,22 @@ struct RefPicker: View {
                 }
             }
         } label: {
+            // Middle truncation, not tail: the informative part of a long
+            // ref name is usually at both ends (a dated branch, a
+            // slash-namespaced tag), and a snapshot id is opaque enough
+            // that losing the middle costs nothing.
             Label(currentName, systemImage: currentKind.symbol)
+                // Toolbar items default to icon-only, which reduces this to
+                // an anonymous glyph -- the whole point of the control is
+                // showing *which* ref is on screen, so the title is forced
+                // back on.
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
+        // Borderless keeps it compact enough for the sidebar's width; a
+        // bezelled pop-up button would crowd it.
+        .menuStyle(.borderlessButton)
         .help("Choose which version of this repository to view")
     }
 
