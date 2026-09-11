@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Emit the ndLook app icon as SVG files next to this script.
 
-The icon is an isometric data cube: gridded blue and orange side faces, a
-contoured scalar field on top that warms toward the orange face, and a
-Quick Look loupe over the back-right corner. Four files come out:
+The icon is an isometric data cube: gridded blue and orange side faces
+carrying an `n` and a `d`, a contoured scalar field on top that warms toward
+the orange face, and a Quick Look loupe over the back-right corner. Four
+files come out:
 
   ndlook.svg        the full artwork on Apple's macOS icon template
                       (824 px rounded rectangle centred on a 1024 canvas,
                       with the template's drop shadow)
   ndlook-small.svg  reduced artwork for the 16 and 32 pt icon slots:
                       two contour bands, no isolines, a 2x2 grid, heavier
-                      outlines, a bigger loupe
+                      outlines, a bigger loupe, no letters
   ndlook-bare.svg   the cube and loupe alone on a transparent canvas,
                       for an Icon Composer layer
   ndlook-badge.svg  the cube alone, no loupe, filling the canvas: the
@@ -21,7 +22,8 @@ Quick Look loupe over the back-right corner. Four files come out:
 Each SVG is grouped into `<g id="layer-...">` groups (shadow, background,
 midground, foreground) so the artwork can be split into an Icon Composer
 `.icon` bundle for macOS 26 later, with the flat PNG files as the fallback for
-macOS 13 to 15. No text, no gradients, a short flat palette.
+macOS 13 to 15. No live text (the letters are traced outlines), no
+gradients, a short flat palette.
 
 Run it directly (no dependencies), then `node assets.mjs` to render the
 asset catalog. The design history is in the git log of the
@@ -158,6 +160,70 @@ def loupe(cx, cy, r, ring, handle_len, stroke, outline, glass=None) -> str:
             f'    <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="none" stroke="{colour}" stroke-width="{ring + extra:.1f}"/>\n'
         )
     return "".join(out)
+
+
+# --- letters on the side faces ---------------------------------------------
+#
+# The full-size artwork spells the name: an `n` on the blue face and a `d` on
+# the orange one, drawn in each face's own plane so they read as painted on
+# the cube. They hold up at 128 pt and above and turn to noise below that, so
+# the small artwork (16 and 32 pt) and the document badge leave them out.
+
+# Glyph outlines for the letters on the side faces, traced once from
+# Nunito ExtraBold (SIL Open Font License 1.1, Vernon Adams / Cyreal /
+# Jacques Le Bailly, via Google Fonts) with fontTools' SVGPathPen. Font
+# units: 1000 per em, y up, baseline at 0. Keeping them as path data means
+# the SVG needs no font and renders identically everywhere.
+LETTERS = {
+    "n": {
+        "bounds": (58, -9, 540, 501),
+        "d": (
+            "M134 -9Q97 -9 78 11Q58 31 58 68V423Q58 460 78 480Q97 499 132 499Q168 499 187 480Q206 460"
+            " 206 423V366L195 399Q218 448 264 474Q309 501 367 501Q426 501 464 478Q502 456 521 410Q540"
+            " 365 540 295V68Q540 31 520 11Q501 -9 464 -9Q428 -9 408 11Q389 31 389 68V288Q389 339 370 "
+            "362Q352 384 314 384Q266 384 238 354Q209 324 209 274V68Q209 -9 134 -9Z"
+        ),
+    },
+    "d": {
+        "bounds": (34, -11, 552, 714),
+        "d": (
+            "M249 -11Q185 -11 136 20Q88 51 61 109Q34 167 34 246Q34 325 61 382Q88 439 136 470Q185 501 "
+            "249 501Q307 501 352 473Q396 445 412 400H401V637Q401 675 420 694Q439 714 476 714Q512 714 "
+            "532 694Q552 675 552 637V68Q552 31 532 11Q513 -9 477 -9Q441 -9 422 11Q402 31 402 68V136L4"
+            "13 97Q399 48 354 18Q308 -11 249 -11ZM294 102Q327 102 351 118Q375 134 389 166Q403 197 403"
+            " 246Q403 319 373 354Q343 388 294 388Q262 388 238 373Q213 358 200 326Q186 295 186 246Q186"
+            " 173 216 138Q246 102 294 102Z"
+        ),
+    },
+}
+
+
+def face_letter(origin, flip: int, s: float, ch: str, size: float, fill: str, edge: str, edge_w: float) -> str:
+    """`ch` centred on a side face, in that face's plane.
+
+    `origin` is the face's top-left corner in canvas space and `flip` says
+    which way its top edge runs: +1 down-right (the blue face, whose top edge
+    is the cube's front-left edge) or -1 up-right (the orange face). The
+    glyph is scaled so 1 em is `size` px, its bounding box centred on the
+    face, and drawn twice: an `edge`-coloured stroke underneath, then the
+    fill, so it separates from the grid behind it.
+    """
+    cos30, sin30 = math.cos(math.radians(30)), math.sin(math.radians(30))
+    plane = f"matrix({cos30:.4f},{flip * sin30:.4f},0,1,{origin[0]:.1f},{origin[1]:.1f})"
+    glyph = LETTERS[ch]
+    x0, y0, x1, y1 = glyph["bounds"]
+    k = size / 1000  # font units -> face px
+    tx = s / 2 - k * (x0 + x1) / 2
+    ty = s / 2 + k * (y0 + y1) / 2  # y flips: font y is up, SVG y is down
+    d = glyph["d"]
+    return (
+        f'    <g transform="{plane}">\n'
+        f'      <g transform="translate({tx:.1f},{ty:.1f}) scale({k:.4f},{-k:.4f})">\n'
+        f'        <path d="{d}" fill="none" stroke="{edge}" stroke-width="{edge_w / k:.1f}" stroke-linejoin="round"/>\n'
+        f'        <path d="{d}" fill="{fill}"/>\n'
+        "      </g>\n"
+        "    </g>\n"
+    )
 
 
 # --- scalar field and contours (pure Python marching squares) ---------------
@@ -360,16 +426,17 @@ FIELD_SMALL = {
 # --- the icon ---------------------------------------------------------------
 
 
-def icon(bare: bool = False, small: bool = False, with_loupe: bool = True) -> str:
+def icon(bare: bool = False, small: bool = False, with_loupe: bool = True, letters: bool = True) -> str:
     """Isometric data cube with a contoured field on top and a Quick Look
     loupe over the back-right corner.
 
     `bare` drops the rounded-rectangle background and its shadow and lets
     the cube use more of the canvas. `small` is the reduced artwork for the
     16 and 32 pt slots of the icon set: a coarser grid, heavier outlines, a
-    bigger loupe, the two-band field. Without the loupe (`with_loupe=False`,
-    only meaningful with `bare`) the cube is centred and fills the canvas:
-    that is the document-icon badge.
+    bigger loupe, the two-band field, and no letters. Without the loupe
+    (`with_loupe=False`, only meaningful with `bare`) the cube is centred and
+    fills the canvas: that is the document-icon badge. `letters` puts the
+    `n` and `d` on the side faces; it is ignored for the small artwork.
     """
     if bare and not with_loupe:
         s, cx, cy = 480, 512, 512
@@ -404,6 +471,12 @@ def icon(bare: bool = False, small: bool = False, with_loupe: bool = True) -> st
     # grid lines on the two side faces only (the top face carries the field)
     out.append(polyline_group(face_grid_lines(left, grid_div), NAVY, grid_w, 0.5))
     out.append(polyline_group(face_grid_lines(right, grid_div), NAVY, grid_w, 0.5))
+    # the name, one letter per side face, over the grid
+    if letters and not small:
+        letter_size = 0.82 * s
+        edge_w = 0.035 * s
+        out.append(face_letter(wv, +1, s, "n", letter_size, WHITE, NAVY, edge_w))
+        out.append(face_letter(sv, -1, s, "d", letter_size, WHITE, NAVY, edge_w))
     # cube outline
     outline = [n, e, (e[0], e[1] + s), (sv[0], sv[1] + s), (wv[0], wv[1] + s), wv]
     out.append(
