@@ -57,8 +57,8 @@ node docs/icon/assets.mjs
 description = "Generate the Xcode project from apple/project.yml"
 run = "xcodegen generate --spec apple/project.yml"
 
-[tasks.build-appex]
-description = "Build the QuickLook app extension (Debug)"
+[tasks.build-app]
+description = "Build the ndLook app and Quick Look extension (Debug)"
 run = "xcodebuild -project apple/ndLook.xcodeproj -scheme ndLook -configuration Debug build"
 
 [tasks.install-dev]

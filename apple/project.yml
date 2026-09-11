@@ -3,7 +3,7 @@
 # app extension.
 #
 # Generate the .xcodeproj with `mise run xcodeproj`. Building it
-# (`mise run build-appex` / `xcodebuild`) needs a full Xcode install.
+# (`mise run build-app` / `xcodebuild`) needs a full Xcode install.
 #
 # apple/include/ndlook_ffi.h is generated (not tracked): the prebuild
 # script phase below runs `cargo build`, whose build.rs writes the header
@@ -35,7 +35,10 @@
 # spec -- xcodegen copies INFOPLIST_FILE through verbatim. The app imports
 # com.alexkerney.ndlook.netcdf/.hdf5 (file types) and exports com.alexkerney.ndlook.zarr/
 # .icechunk (directory stores, conforming to com.apple.package so the
-# Finder treats them as previewable single items).
+# Finder treats them as previewable single items). ndLook is itself a
+# viewer/opener for these types -- App/Info.plist's CFBundleDocumentTypes
+# (added in a later step) is what makes the Finder offer it as an "Open
+# With" target, on top of the UTI declarations here.
 ########################################################################
 
 name: ndLook
@@ -43,12 +46,12 @@ name: ndLook
 options:
   bundleIdPrefix: com.alexkerney.ndlook
   deploymentTarget:
-    macOS: "13.0"
+    macOS: "15.0"
   createIntermediateGroups: true
 
 settings:
   base:
-    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
     SWIFT_VERSION: "5.0"
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "-" # ad-hoc signing for local development
@@ -70,10 +73,30 @@ targets:
         PRODUCT_NAME: ndLook
         INFOPLIST_FILE: App/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_OBJC_BRIDGING_HEADER: App/BridgingHeader.h
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/include
+        LIBRARY_SEARCH_PATHS:
+          - $(SRCROOT)/../target/release
+        OTHER_LDFLAGS:
+          - -lndlook_ffi
+          # See the identical flag on PreviewExtension's OTHER_LDFLAGS below
+          # for why this is needed alongside -lndlook_ffi (icechunk's
+          # chrono dependency resolving the system time zone through
+          # CoreFoundation).
+          - -framework
+          - CoreFoundation
     entitlements:
       path: App/App.entitlements
       properties:
         com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-only: true
+    # This target links ndlook-ffi's staticlib (OTHER_LDFLAGS above) but
+    # has no prebuild script of its own to build it -- it relies on Xcode
+    # building the PreviewExtension dependency below (and that target's
+    # "Build ndlook-ffi (cargo)" prebuild script) before this target
+    # links. If PreviewExtension is ever removed, that prebuild script must
+    # move to this target instead.
     dependencies:
       - target: PreviewExtension
         embed: true
@@ -114,7 +137,7 @@ targets:
     # Keeps `xcodebuild`/Xcode builds self-contained: building the app
     # extension target always (re)builds the Rust staticlib it links
     # against first, so a clean checkout can go straight to
-    # `mise run build-appex` without a separate cargo step.
+    # `mise run build-app` without a separate cargo step.
     #
     # `basedOnDependencyAnalysis: false` forces this to run on every build
     # (cargo does its own up-to-date checking internally, so this is cheap
