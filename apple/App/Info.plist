@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>GridLook</string>
+	<string>ndLook</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -42,7 +42,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridlook.netcdf</string>
+			<string>com.alexkerney.ndlook.netcdf</string>
 			<key>UTTypeDescription</key>
 			<string>NetCDF Dataset</string>
 			<key>UTTypeConformsTo</key>
@@ -61,7 +61,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridlook.hdf5</string>
+			<string>com.alexkerney.ndlook.hdf5</string>
 			<key>UTTypeDescription</key>
 			<string>HDF5 Dataset</string>
 			<key>UTTypeConformsTo</key>
@@ -80,7 +80,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridlook.grib</string>
+			<string>com.alexkerney.ndlook.grib</string>
 			<key>UTTypeDescription</key>
 			<string>GRIB Dataset</string>
 			<key>UTTypeConformsTo</key>
@@ -130,7 +130,7 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridlook.zarr</string>
+			<string>com.alexkerney.ndlook.zarr</string>
 			<key>UTTypeDescription</key>
 			<string>Zarr Store</string>
 			<key>UTTypeIcons</key>
@@ -155,7 +155,7 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>dev.gridlook.icechunk</string>
+			<string>com.alexkerney.ndlook.icechunk</string>
 			<key>UTTypeDescription</key>
 			<string>Icechunk Repository</string>
 			<key>UTTypeIcons</key>

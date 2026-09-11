@@ -9,13 +9,13 @@ license = "BSD-3-Clause"
 repository = "https://github.com/abkfenris/gridded-quicklook"
 
 [workspace.dependencies]
-gridlook-meta = { path = "crates/gridlook-meta" }
-gridlook-html = { path = "crates/gridlook-html" }
+ndlook-meta = { path = "crates/ndlook-meta" }
+ndlook-html = { path = "crates/ndlook-html" }
 
-# The app extension links gridlook-ffi's staticlib, which also carries
+# The app extension links ndlook-ffi's staticlib, which also carries
 # libnetcdf, libhdf5, zstd and icechunk's dependency tree; spend build time
 # to shrink and tighten it. `panic` stays "unwind" (the default) on purpose:
-# gridlook-ffi relies on catch_unwind to turn panics into HTML error cards
+# ndlook-ffi relies on catch_unwind to turn panics into HTML error cards
 # instead of aborting the extension process.
 [profile.release]
 lto = "thin"

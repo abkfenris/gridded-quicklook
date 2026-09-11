@@ -35,8 +35,8 @@ sources = ["fixtures/download_samples.py"]
 outputs = ["fixtures/samples/*"]
 
 [tasks.sync-xarray-assets]
-description = "Sync xarray's HTML repr CSS/SVG assets (fetched from a pinned GitHub tag) into crates/gridlook-html"
-run = "./crates/gridlook-html/sync_xarray_assets.py"
+description = "Sync xarray's HTML repr CSS/SVG assets (fetched from a pinned GitHub tag) into crates/ndlook-html"
+run = "./crates/ndlook-html/sync_xarray_assets.py"
 
 [tasks.hooks]
 description = "Run all pre-commit hooks against the full repo"
@@ -59,7 +59,7 @@ run = "xcodegen generate --spec apple/project.yml"
 
 [tasks.build-appex]
 description = "Build the QuickLook app extension (Debug)"
-run = "xcodebuild -project apple/GridLook.xcodeproj -scheme GridLook -configuration Debug build"
+run = "xcodebuild -project apple/ndLook.xcodeproj -scheme ndLook -configuration Debug build"
 
 [tasks.install-dev]
 description = "Install a development build of the QuickLook extension locally"

@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""Download real-world sample files that gridlook's tests read.
+"""Download real-world sample files that ndlook's tests read.
 
 Unlike ``generate.py``, which synthesizes tiny fixtures locally, some
 formats are only worth testing against genuine output from the tools that

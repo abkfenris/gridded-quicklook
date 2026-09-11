@@ -45,8 +45,8 @@ jobs:
           install: true
           cache: true
 
-      - name: cargo build --release -p gridlook-ffi
-        run: cargo build --release -p gridlook-ffi
+      - name: cargo build --release -p ndlook-ffi
+        run: cargo build --release -p ndlook-ffi
 
       - name: mise run xcodeproj
         run: mise run xcodeproj
@@ -56,16 +56,16 @@ jobs:
         # profile, so signing is disabled entirely rather than attempting
         # (and failing) an ad-hoc signature. This still exercises the full
         # compile + link of the app and app-extension targets, including
-        # linking against libgridlook_ffi.a.
+        # linking against libndlook_ffi.a.
         run: |
           xcodebuild \
-            -project apple/GridLook.xcodeproj \
-            -scheme GridLook \
+            -project apple/ndLook.xcodeproj \
+            -scheme ndLook \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
 
-  # Builds the release gridlook-ffi staticlib for this PR and for its base
+  # Builds the release ndlook-ffi staticlib for this PR and for its base
   # branch and posts (or updates) one sticky comment with both sizes and the
   # delta. The two builds are independent, so they run as parallel matrix
   # legs; the report job below joins them. It runs on Linux as a proxy for
@@ -112,18 +112,24 @@ jobs:
           install: true
           cache: true
 
+      # The ffi crate is looked up from the manifest being built instead of
+      # hard-coded so the base leg survives a crate rename: until the rename
+      # merges, the base branch still carries the old package name.
       - name: Build staticlib
         env:
           MANIFEST: ${{ matrix.manifest }}
           TARGET_DIR: ${{ matrix.target_dir }}
-        run: cargo build --release -p gridlook-ffi --manifest-path "$MANIFEST" --target-dir "$TARGET_DIR"
+        run: |
+          pkg=$(cargo metadata --no-deps --format-version 1 --manifest-path "$MANIFEST" \
+            | jq -r '.packages[].name | select(endswith("-ffi"))')
+          cargo build --release -p "$pkg" --manifest-path "$MANIFEST" --target-dir "$TARGET_DIR"
 
       - name: Record size
         id: size
         env:
           SIDE: ${{ matrix.side }}
           TARGET_DIR: ${{ matrix.target_dir }}
-        run: echo "${SIDE}=$(stat -c%s "$TARGET_DIR/release/libgridlook_ffi.a")" >> "$GITHUB_OUTPUT"
+        run: echo "${SIDE}=$(stat -c%s "$TARGET_DIR"/release/lib*_ffi.a)" >> "$GITHUB_OUTPUT"
 
   staticlib_size:
     name: staticlib size
@@ -157,7 +163,7 @@ jobs:
 
           {
             echo "<!-- staticlib-size-report -->"
-            echo "## libgridlook_ffi.a size report"
+            echo "## libndlook_ffi.a size report"
             echo ""
             echo "| | Size | Bytes |"
             echo "|---|---|---|"
@@ -167,7 +173,7 @@ jobs:
             echo ""
             echo "${VERDICT}"
             echo ""
-            echo "_Release build of \`gridlook-ffi\` on ubuntu-latest, a proxy for the macOS staticlib the app extension links._"
+            echo "_Release build of \`ndlook-ffi\` on ubuntu-latest, a proxy for the macOS staticlib the app extension links._"
           } > "$RUNNER_TEMP/comment.md"
 
           # The numbers also land in the log and the run summary, which is

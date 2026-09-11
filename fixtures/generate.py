@@ -6,7 +6,7 @@
 # [tool.uv]
 # exclude-newer = "2026-08-10T00:00:00Z"
 # ///
-"""Generate deterministic, tiny test fixtures for gridlook.
+"""Generate deterministic, tiny test fixtures for ndlook.
 
 Re-runnable: wipes and recreates ``fixtures/data/`` and
 ``fixtures/reference/`` on every run. Every generated file is kept well
@@ -75,7 +75,7 @@ def make_simple_dataset() -> xr.Dataset:
             "x": ("x", x, {"units": "km", "long_name": "Cross-shore distance"}),
         },
         attrs={
-            "title": "gridlook simple fixture",
+            "title": "ndlook simple fixture",
             "institution": "NERACOOS",
             "conventions": "CF-1.8",
         },
@@ -125,7 +125,7 @@ def write_plain_hdf5_fixture(ds: xr.Dataset) -> None:
     to report it as HDF5 rather than netCDF.
     """
     with h5py.File(DATA_DIR / "plain.h5", "w") as f:
-        f.attrs["title"] = "gridlook plain HDF5 fixture"
+        f.attrs["title"] = "ndlook plain HDF5 fixture"
         f.attrs["written_by"] = "h5py"
         temperature = f.create_dataset(
             "temperature", data=ds["temperature"].values, chunks=(2, N_X, N_Y)

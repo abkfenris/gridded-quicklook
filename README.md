@@ -1,4 +1,6 @@
-# GridLook
+# ndLook
+
+Quick Look for n-dimensional labeled arrays.
 
 A macOS Quick Look app extension that previews gridded scientific data (NetCDF/HDF5 and GRIB files, Zarr stores, and Icechunk repositories) as an
 xarray-style dataset repr.
@@ -29,22 +31,22 @@ their name: a file is sniffed for the classic-netCDF, HDF5, or GRIB signature
 (the extension list is only a fallback, which matters most for GRIB — NCEP
 publishes its products with no extension at all), and a store called anything at all
 previews correctly once Quick Look hands it over. For the Finder to offer a preview in the first place, though, the
-directory needs a recognized extension: the app declares `dev.gridlook.zarr`
-(`.zarr`) and `dev.gridlook.icechunk` (`.icechunk`) as exported UTIs
+directory needs a recognized extension: the app declares `com.alexkerney.ndlook.zarr`
+(`.zarr`) and `com.alexkerney.ndlook.icechunk` (`.icechunk`) as exported UTIs
 conforming to `com.apple.package`.
 
 ## Layout
 
 | Path                   | What it is                                                       |
 | ---------------------- | ---------------------------------------------------------------- |
-| `crates/gridlook-meta`  | Format readers → a format-agnostic `DatasetSummary`               |
-| `crates/gridlook-html`  | Renders a `DatasetSummary` as a self-contained HTML document      |
-| `crates/gridlook-ffi`   | C ABI (`staticlib`) linked into the app extension                 |
+| `crates/ndlook-meta`  | Format readers → a format-agnostic `DatasetSummary`               |
+| `crates/ndlook-html`  | Renders a `DatasetSummary` as a self-contained HTML document      |
+| `crates/ndlook-ffi`   | C ABI (`staticlib`) linked into the app extension                 |
 | `apple/`               | XcodeGen spec, the host app, and the Quick Look preview extension |
 | `fixtures/`            | Fixture generator (`generate.py`) and sample downloader (`download_samples.py`); neither's output is committed |
 
-The Icechunk reader lives behind `gridlook-meta`'s non-default `icechunk`
-cargo feature (it pulls in a sizable dependency tree); `gridlook-ffi` enables
+The Icechunk reader lives behind `ndlook-meta`'s non-default `icechunk`
+cargo feature (it pulls in a sizable dependency tree); `ndlook-ffi` enables
 it, so the extension always has it.
 
 ## Development
@@ -69,9 +71,9 @@ generation are usable without Xcode.
 | `mise run hooks`              | `prek run --all-files`                                  |
 | `mise run fixtures`           | Generate `fixtures/data` + `fixtures/reference` (untracked) |
 | `mise run samples`            | Download `fixtures/samples` — real NOAA GRIB2 messages (untracked, needs network) |
-| `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `gridlook-html`       |
+| `mise run sync-xarray-assets` | Re-copy xarray's repr CSS/SVG into `ndlook-html`       |
 | `mise run icons`              | Regenerate the app icon and document badge from `docs/icon` (needs node + Playwright) |
-| `mise run xcodeproj`          | Generate `apple/GridLook.xcodeproj`             |
+| `mise run xcodeproj`          | Generate `apple/ndLook.xcodeproj`             |
 | `mise run build-appex`        | `xcodebuild` the extension (needs full Xcode)           |
 | `mise run install-dev`        | `scripts/install-dev.sh`                                |
 | `mise run preview`            | Reset/reload the Quick Look daemon                      |
@@ -89,7 +91,7 @@ Xcode is needed to build or run the macOS app extension.
 
 ## Attribution
 
-`crates/gridlook-html/assets/` contains xarray's HTML-repr stylesheet and
+`crates/ndlook-html/assets/` contains xarray's HTML-repr stylesheet and
 inline SVG icons, copied from
 [pydata/xarray](https://github.com/pydata/xarray) (Apache License 2.0,
 copyright the xarray contributors) so that previews are styled identically

@@ -21,7 +21,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const option = process.argv[2] ?? "gridlook";
+const option = process.argv[2] ?? "ndlook";
 const catalog = join(here, "..", "..", "apple", "App", "Assets.xcassets");
 const set = join(catalog, "AppIcon.appiconset");
 mkdirSync(set, { recursive: true });

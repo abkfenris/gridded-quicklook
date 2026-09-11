@@ -1,19 +1,27 @@
 # App icon sources
 
-The GridLook app icon
+The ndLook app icon
 ([#14](https://github.com/abkfenris/gridded-quicklook/issues/14)): an
-isometric data cube with gridded blue and orange side faces, a contoured
-scalar field on top that warms toward the orange face, and a Quick Look
-loupe over the back-right corner.
+isometric data cube with gridded blue and orange side faces carrying an
+`n` and a `d`, a contoured scalar field on top that warms toward the orange
+face, and a Quick Look loupe over the back-right corner.
 
 | File                 | What it is                                                                                              |
 | -------------------- | ------------------------------------------------------------------------------------------------------- |
 | `generate.py`        | Emits the four SVGs below. Plain Python, no dependencies.                                               |
-| `gridlook.svg`       | The full artwork on Apple's macOS icon template (824 px rounded rectangle on a 1024 canvas, with shadow). |
-| `gridlook-small.svg` | Reduced artwork for the 16 and 32 pt slots: two contour bands, no isolines, 2x2 grid, heavier outlines, bigger loupe. |
-| `gridlook-bare.svg`  | The cube and loupe alone on a transparent canvas, for an Icon Composer layer.                           |
-| `gridlook-badge.svg` | The cube alone, no loupe, filling the canvas: the badge on the `.zarr` and `.icechunk` document icons.  |
+| `ndlook.svg`       | The full artwork on Apple's macOS icon template (824 px rounded rectangle on a 1024 canvas, with shadow). |
+| `ndlook-small.svg` | Reduced artwork for the 16 and 32 pt slots: two contour bands, no isolines, 2x2 grid, heavier outlines, bigger loupe, no letters. |
+| `ndlook-bare.svg`  | The cube and loupe alone on a transparent canvas, for an Icon Composer layer.                           |
+| `ndlook-badge.svg` | The cube alone, no loupe, filling the canvas: the badge on the `.zarr` and `.icechunk` document icons.  |
 | `assets.mjs`         | Renders the SVGs into `apple/App/Assets.xcassets` (the `AppIcon` icon set and the `DocumentBadge` image set) and writes their `Contents.json`. |
+
+The letters are the name spelled across the two side faces, one per face,
+drawn in each face's plane so they read as painted on the cube. They hold
+up at 128 pt and above and dissolve below that, so the small artwork and the
+document badge leave them out. They are traced outlines, not live text:
+`LETTERS` in `generate.py` holds the `n` and `d` of Nunito ExtraBold (SIL
+Open Font License) as path data, so the SVGs need no font installed and
+render the same everywhere.
 
 The top face is a real contour plot: a scalar field built from a few
 anisotropic Gaussian bumps (`FIELD` in `generate.py`), sampled on a grid,

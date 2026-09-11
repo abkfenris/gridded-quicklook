@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>GridLook Preview</string>
+	<string>ndLook Preview</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -42,11 +42,11 @@
 			<true/>
 			<key>QLSupportedContentTypes</key>
 			<array>
-				<string>dev.gridlook.netcdf</string>
-				<string>dev.gridlook.hdf5</string>
-				<string>dev.gridlook.grib</string>
-				<string>dev.gridlook.zarr</string>
-				<string>dev.gridlook.icechunk</string>
+				<string>com.alexkerney.ndlook.netcdf</string>
+				<string>com.alexkerney.ndlook.hdf5</string>
+				<string>com.alexkerney.ndlook.grib</string>
+				<string>com.alexkerney.ndlook.zarr</string>
+				<string>com.alexkerney.ndlook.icechunk</string>
 			</array>
 			<key>QLSupportsSearchableItems</key>
 			<false/>
