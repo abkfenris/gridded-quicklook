@@ -45,8 +45,8 @@ jobs:
           install: true
           cache: true
 
-      - name: cargo build --release -p gridlook-ffi
-        run: cargo build --release -p gridlook-ffi
+      - name: cargo build --release -p ndlook-ffi
+        run: cargo build --release -p ndlook-ffi
 
       - name: mise run xcodeproj
         run: mise run xcodeproj
@@ -56,16 +56,16 @@ jobs:
         # profile, so signing is disabled entirely rather than attempting
         # (and failing) an ad-hoc signature. This still exercises the full
         # compile + link of the app and app-extension targets, including
-        # linking against libgridlook_ffi.a.
+        # linking against libndlook_ffi.a.
         run: |
           xcodebuild \
-            -project apple/GridLook.xcodeproj \
-            -scheme GridLook \
+            -project apple/ndLook.xcodeproj \
+            -scheme ndLook \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
 
-  # Builds the release gridlook-ffi staticlib for this PR and for its base
+  # Builds the release ndlook-ffi staticlib for this PR and for its base
   # branch and posts (or updates) one sticky comment with both sizes and the
   # delta. It runs on Linux as a proxy for the macOS artifact the app
   # extension actually links: the same object code (libnetcdf, libhdf5, zstd,
@@ -89,11 +89,11 @@ jobs:
           cache: true
 
       - name: Build PR staticlib
-        run: cargo build --release -p gridlook-ffi
+        run: cargo build --release -p ndlook-ffi
 
       - name: Record PR size
         id: head
-        run: echo "bytes=$(stat -c%s target/release/libgridlook_ffi.a)" >> "$GITHUB_OUTPUT"
+        run: echo "bytes=$(stat -c%s target/release/libndlook_ffi.a)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -106,11 +106,11 @@ jobs:
       # mise resolves this repo's toolchain pins: its config lookup stops at
       # base/'s own .git boundary, so from inside base/ it would find nothing.
       - name: Build base staticlib
-        run: cargo build --release -p gridlook-ffi --manifest-path base/Cargo.toml --target-dir base/target
+        run: cargo build --release -p ndlook-ffi --manifest-path base/Cargo.toml --target-dir base/target
 
       - name: Record base size
         id: base
-        run: echo "bytes=$(stat -c%s base/target/release/libgridlook_ffi.a)" >> "$GITHUB_OUTPUT"
+        run: echo "bytes=$(stat -c%s base/target/release/libndlook_ffi.a)" >> "$GITHUB_OUTPUT"
 
       - name: Post size comment
         # A fork's GITHUB_TOKEN can't write comments; the numbers are still
@@ -140,7 +140,7 @@ jobs:
 
           {
             echo "<!-- staticlib-size-report -->"
-            echo "## libgridlook_ffi.a size report"
+            echo "## libndlook_ffi.a size report"
             echo ""
             echo "| | Size | Bytes |"
             echo "|---|---|---|"
@@ -150,7 +150,7 @@ jobs:
             echo ""
             echo "${VERDICT}"
             echo ""
-            echo "_Release build of \`gridlook-ffi\` on ubuntu-latest, a proxy for the macOS staticlib the app extension links._"
+            echo "_Release build of \`ndlook-ffi\` on ubuntu-latest, a proxy for the macOS staticlib the app extension links._"
           } > /tmp/comment.md
 
           COMMENT_ID=$(gh api \

@@ -638,40 +638,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gridlook-ffi"
-version = "0.1.0"
-dependencies = [
- "cbindgen",
- "gridlook-html",
- "gridlook-meta",
-]
-
-[[package]]
-name = "gridlook-html"
-version = "0.1.0"
-dependencies = [
- "gridlook-meta",
- "insta",
-]
-
-[[package]]
-name = "gridlook-meta"
-version = "0.1.0"
-dependencies = [
- "base64 0.23.1",
- "gridlook-meta",
- "icechunk",
- "insta",
- "netcdf",
- "netcdf-sys",
- "serde",
- "serde_json",
- "thiserror",
- "tokio",
- "zarrs_metadata",
-]
-
-[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1256,6 +1222,40 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "rawpointer",
+]
+
+[[package]]
+name = "ndlook-ffi"
+version = "0.1.0"
+dependencies = [
+ "cbindgen",
+ "ndlook-html",
+ "ndlook-meta",
+]
+
+[[package]]
+name = "ndlook-html"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "ndlook-meta",
+]
+
+[[package]]
+name = "ndlook-meta"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "icechunk",
+ "insta",
+ "ndlook-meta",
+ "netcdf",
+ "netcdf-sys",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "zarrs_metadata",
 ]
 
 [[package]]

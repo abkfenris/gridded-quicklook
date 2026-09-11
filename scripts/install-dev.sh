@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds and installs a local development build of the GridLook
+# Builds and installs a local development build of the ndLook
 # app + preview extension, ad-hoc signed, for the current user.
 #
 # This mirrors the workflow used by rkrug/parquet-spotlight-quicklook and
@@ -18,15 +18,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APPLE_DIR="$ROOT_DIR/apple"
-PROJECT_PATH="$APPLE_DIR/GridLook.xcodeproj"
-SCHEME="GridLook"
+PROJECT_PATH="$APPLE_DIR/ndLook.xcodeproj"
+SCHEME="ndLook"
 # Release, not Debug: Debug builds use Xcode's debug-dylib mechanism (a
 # stub main executable that loads PreviewExtension.debug.dylib), which
 # does not reliably load outside Xcode's own run harness -- the extension
 # process starts but the principal class never instantiates.
 CONFIGURATION="Release"
 BUILD_DIR="$ROOT_DIR/build"
-APP_NAME="GridLook.app"
+APP_NAME="ndLook.app"
 APP_DST="$HOME/Applications/$APP_NAME"
 
 log() { echo "==> $*"; }
@@ -55,8 +55,8 @@ EOF
   fi
 }
 
-log "Building gridlook-ffi release staticlib..."
-( cd "$ROOT_DIR" && cargo build --release -p gridlook-ffi )
+log "Building ndlook-ffi release staticlib..."
+( cd "$ROOT_DIR" && cargo build --release -p ndlook-ffi )
 
 log "Generating Xcode project (xcodegen)..."
 # xcodegen is mise-managed; in non-interactive shells mise's shims may not be
@@ -97,6 +97,14 @@ fi
 log "Installing to $APP_DST..."
 mkdir -p "$HOME/Applications"
 rm -rf "$APP_DST"
+# The app used to be called GridLook (bundle id dev.gridlook.quicklook). A
+# stale copy would keep claiming the same file types and Quick Look would
+# pick one of the two extensions at random, so clear it out.
+LEGACY_APP="$HOME/Applications/GridLook.app"
+if [[ -d "$LEGACY_APP" ]]; then
+  log "Removing the previous GridLook.app install..."
+  rm -rf "$LEGACY_APP"
+fi
 ditto "$BUILT_APP" "$APP_DST"
 xattr -cr "$APP_DST" || true
 
@@ -127,7 +135,7 @@ Installed: $APP_DST
 
 Finish enabling the extension in:
   System Settings -> General -> Login Items & Extensions -> Quick Look
-  (look for "GridLook Preview" and turn it on)
+  (look for "ndLook Preview" and turn it on)
 
 Then select a .nc/.h5 file, a .zarr store, or an .icechunk repo in Finder
 and press Space to preview it. (Directory stores need the .zarr/.icechunk

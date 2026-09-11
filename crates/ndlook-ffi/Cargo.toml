@@ -1,0 +1,17 @@
+[package]
+name = "ndlook-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "ndlook_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+ndlook-meta = { workspace = true, features = ["icechunk"] }
+ndlook-html.workspace = true
+
+[build-dependencies]
+cbindgen = { version = "0.29", default-features = false }
