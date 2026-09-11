@@ -27,5 +27,47 @@ struct NDLookApp: App {
             // for why nothing is loaded at open time.
             DocumentView(fileURL: configuration.fileURL)
         }
+        .commands {
+            // Replaces AppKit's stock "About ndLook", which would open a
+            // standard panel showing only the icon, name and version. Ours
+            // also carries the Quick Look setup instructions -- the thing
+            // someone is most likely hunting for when previews don't work.
+            CommandGroup(replacing: .appInfo) {
+                AboutWindowButton()
+            }
+        }
+
+        // A `Window`, not a `WindowGroup`: About is a singleton, and
+        // `Window` gives that for free -- invoking it again brings the
+        // existing window forward instead of opening a second copy.
+        Window("About ndLook", id: Self.aboutWindowID) {
+            AboutView()
+        }
+        // The content has a fixed frame, so let the window take its size
+        // from that rather than offering a resize handle that only adds
+        // empty space.
+        .windowResizability(.contentSize)
+    }
+
+    /// Shared between the menu command that opens the window and the scene
+    /// that declares it; they must agree exactly or the command silently
+    /// opens nothing.
+    static let aboutWindowID = "about"
+}
+
+/// The About menu item.
+///
+/// A separate `View` rather than a plain `Button` in the `CommandGroup`
+/// because opening a window needs `@Environment(\.openWindow)`, and an
+/// `App` has no environment to read it from. `CommandGroup`'s content is a
+/// `ViewBuilder`, and SwiftUI injects the environment into the views it
+/// builds, so a one-button view is the standard way to reach the action.
+private struct AboutWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("About ndLook") {
+            openWindow(id: NDLookApp.aboutWindowID)
+        }
     }
 }
