@@ -54,13 +54,26 @@ struct DocumentView: View {
         let ref: String?
     }
 
-    /// A summary's version history, if the format has one.
+    /// The ref menu for this summary, or `nil` if there is no version
+    /// history to choose from.
     ///
-    /// Checks the format as well as the presence of `versionInfo`: the two
+    /// Two different `VersionInfo` values go in, and the distinction is the
+    /// fix for the menu shrinking as you navigate: the *pinned* one (from
+    /// the document's default load) supplies the menu's contents, while the
+    /// *live* one supplies the checkmark and the control's label. See
+    /// `RefMenuModel`.
+    ///
+    /// Checks the format as well as the presence of version info: the two
     /// always agree today, but the format is the real condition being
     /// expressed and reading it here keeps that explicit.
-    private func versionInfo(of summary: DatasetSummary) -> VersionInfo? {
-        summary.format == .icechunk ? summary.versionInfo : nil
+    private func refMenu(for summary: DatasetSummary) -> RefMenuModel? {
+        guard summary.format == .icechunk,
+              let live = summary.versionInfo,
+              let pinned = viewModel.pinnedVersionInfo
+        else {
+            return nil
+        }
+        return RefMenuModel(pinned: pinned, current: live)
     }
 
     @ViewBuilder
@@ -80,7 +93,7 @@ struct DocumentView: View {
             NavigationSplitView {
                 SidebarView(
                     root: summary.root,
-                    versionInfo: versionInfo(of: summary),
+                    refMenu: refMenu(for: summary),
                     selectedRef: $viewModel.selectedRef,
                     isReloading: viewModel.isReloading,
                     selection: $selection

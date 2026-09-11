@@ -58,6 +58,26 @@ final class DocumentViewModel {
     /// trigger the reload itself.
     var selectedRef: String?
 
+    /// The version metadata from this document's *default* load, kept to
+    /// populate the ref menu.
+    ///
+    /// The Rust reader walks ancestry backwards from whichever ref was
+    /// asked for, so the `VersionInfo` that comes back with a tag or an old
+    /// snapshot describes only that ref's history. Driving the menu from
+    /// the live value therefore makes the menu shrink as you navigate --
+    /// select an older snapshot and the newer ones you came from disappear,
+    /// with no way back. Pinning the first default load's metadata keeps
+    /// the menu a stable picture of the repository.
+    ///
+    /// Only the menu's *contents* come from here. The checkmark and the
+    /// control's label still track the live summary, because those are
+    /// meant to say what is on screen right now.
+    private(set) var pinnedVersionInfo: VersionInfo?
+
+    /// The URL `pinnedVersionInfo` belongs to, so the pin can be dropped if
+    /// the window is ever pointed at a different document.
+    @ObservationIgnored private var pinnedURL: URL?
+
     /// The in-flight load, kept so a new one can cancel it.
     ///
     /// `@ObservationIgnored` because it is bookkeeping, not display state:
@@ -74,6 +94,13 @@ final class DocumentViewModel {
     /// window showing the wrong thing.
     func load(url: URL) {
         loadTask?.cancel()
+
+        // A pin describes one repository's history; pointing the window at
+        // a different document invalidates it.
+        if pinnedURL != url {
+            pinnedURL = url
+            pinnedVersionInfo = nil
+        }
 
         // A first load has nothing to show, so it blanks to a spinner; a
         // reload keeps the previous summary up (see `isReloading`). A
@@ -116,6 +143,14 @@ final class DocumentViewModel {
 
             switch result {
             case .success(let summary):
+                // Pin the first *default* load's history. Only `ref == nil`
+                // qualifies: that is the one load guaranteed to have walked
+                // back from the repository's default tip, so it sees the
+                // fullest ancestry available. Set before publishing `phase`
+                // so the view never renders a loaded summary without it.
+                if ref == nil, self.pinnedVersionInfo == nil {
+                    self.pinnedVersionInfo = summary.versionInfo
+                }
                 self.phase = .loaded(summary)
             case .failure(let error):
                 self.phase = .failed(error.message)

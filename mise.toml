@@ -61,6 +61,13 @@ run = "xcodegen generate --spec apple/project.yml"
 description = "Build the ndLook app and Quick Look extension (Debug)"
 run = "xcodebuild -project apple/ndLook.xcodeproj -scheme ndLook -configuration Debug build"
 
+[tasks.test-app]
+description = "Run the Swift unit tests for the ndLook app"
+# Pure-logic tests: NDLookTests compiles the sources under test directly
+# rather than hosting in the app, so this needs no window server and does
+# not launch the sandboxed app.
+run = "xcodebuild test -project apple/ndLook.xcodeproj -scheme ndLook -destination platform=macOS"
+
 [tasks.install-dev]
 description = "Install a development build of the QuickLook extension locally"
 run = "scripts/install-dev.sh"

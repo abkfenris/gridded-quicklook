@@ -3,80 +3,40 @@
 //  ndLook
 //
 //  The control for choosing which version of an Icechunk repository to
-//  view: a branch, a tag, or a bare snapshot from the ancestry of whatever
-//  is currently loaded.
+//  view: a branch, a tag, or a bare snapshot from the repository's history.
 //
 //  Only Icechunk has version history, so this is the one piece of the UI
 //  that is format-specific; `SidebarView` contributes it to the sidebar's
-//  section of the titlebar, and only when the loaded summary carries a
-//  `VersionInfo`. It belongs on the sidebar side because what it changes is
-//  the tree directly beneath it -- the ref decides which variables exist at
-//  all.
+//  section of the titlebar. It belongs on the sidebar side because what it
+//  changes is the tree directly beneath it -- the ref decides which
+//  variables exist at all.
+//
+//  Purely a renderer: what the menu contains, which row is checked, and how
+//  each row reads are all decided by `RefMenuModel`, which is testable
+//  without a view. Anything resembling a decision belongs there, not here.
 //
 
-import Foundation
 import SwiftUI
-
-/// The three kinds of ref `ndlook_summarize_json` accepts.
-///
-/// The raw values are the wire spellings on both sides of the FFI: they are
-/// what `VersionInfo.refKind` reports back, and what the `"kind:value"` ref
-/// string is built from. One enum for both directions keeps the two from
-/// drifting.
-enum RefKind: String {
-    case branch
-    case tag
-    case snapshot
-
-    var symbol: String {
-        switch self {
-        case .branch: "arrow.triangle.branch"
-        case .tag: "tag"
-        case .snapshot: "clock.arrow.circlepath"
-        }
-    }
-
-    /// Builds the `"kind:value"` ref string the FFI expects.
-    func ref(_ name: String) -> String {
-        "\(rawValue):\(name)"
-    }
-}
 
 /// Menu listing every branch, tag and recent snapshot in the repository.
 struct RefPicker: View {
-    let versionInfo: VersionInfo
+    let menu: RefMenuModel
+    /// Whether the ref name fits beside the icon. Decided by
+    /// `RefMenuModel.presentation` from the sidebar's measured width, not
+    /// by the layout system: a toolbar asks an item how wide it wants to be
+    /// and never proposes a width back, so no amount of `ViewThatFits` or
+    /// truncation can make the control notice it is running out of room.
+    let presentation: RefControlPresentation
     @Binding var selectedRef: String?
 
     var body: some View {
         Menu {
-            if !versionInfo.branches.isEmpty {
-                Section("Branches") {
-                    ForEach(versionInfo.branches, id: \.self) { name in
-                        entry(kind: .branch, name: name, label: name)
+            ForEach(menu.sections) { section in
+                Section(section.title) {
+                    ForEach(section.rows) { row in
+                        entry(row)
                     }
-                }
-            }
-
-            if !versionInfo.tags.isEmpty {
-                Section("Tags") {
-                    ForEach(versionInfo.tags, id: \.self) { name in
-                        entry(kind: .tag, name: name, label: name)
-                    }
-                }
-            }
-
-            if !versionInfo.ancestry.isEmpty {
-                Section("Snapshots") {
-                    ForEach(versionInfo.ancestry) { snapshot in
-                        entry(
-                            kind: .snapshot,
-                            name: snapshot.id,
-                            label: Self.label(for: snapshot)
-                        )
-                    }
-                    if versionInfo.truncated {
-                        // The reader caps the ancestry walk, so this list is
-                        // the most recent snapshots rather than all of them.
+                    if section.showsTruncationNote {
                         // Disabled because there is nothing to select -- it
                         // is a note, not an option.
                         Button("Older history not shown") {}
@@ -89,102 +49,63 @@ struct RefPicker: View {
             // ref name is usually at both ends (a dated branch, a
             // slash-namespaced tag), and a snapshot id is opaque enough
             // that losing the middle costs nothing.
-            Label(currentName, systemImage: currentKind.symbol)
-                // Toolbar items default to icon-only, which reduces this to
-                // an anonymous glyph -- the whole point of the control is
-                // showing *which* ref is on screen, so the title is forced
-                // back on.
-                .labelStyle(.titleAndIcon)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            controlLabel
         }
-        // Borderless keeps it compact enough for the sidebar's width; a
-        // bezelled pop-up button would crowd it.
-        .menuStyle(.borderlessButton)
-        .help("Choose which version of this repository to view")
+        // `.button`, not `.borderlessButton`: the borderless pop-up style
+        // sizes itself from its widest *menu row*, and the snapshot rows
+        // carry an id, a message and a date. That is what pushed the whole
+        // control into the toolbar's overflow menu once a snapshot was
+        // selected -- the control was being measured against content the
+        // user never sees until the menu opens. The button style sizes from
+        // the label instead, which `RefMenuModel.controlLabel` already caps.
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        // A maximum, deliberately not a fixed width. A fixed frame *demands*
+        // its width whether or not the label needs it, which is how a 150pt
+        // frame ended up in overflow even on "main": the sidebar's slot
+        // between the traffic lights and the toggle is narrower than that.
+        // A maximum only clamps, so a short label still measures short and
+        // the item keeps fitting.
+        .frame(maxWidth: 120, alignment: .leading)
+        // Collapsed, the icon alone says only "a ref" -- the tooltip is
+        // where the name goes so it stays discoverable.
+        .help(
+            presentation == .fullLabel
+                ? "Choose which version of this repository to view"
+                : "Viewing \(menu.currentLabel) \u{2014} choose another version"
+        )
     }
 
-    /// One selectable ref.
+    /// The control's own face.
     ///
-    /// The checkmark tracks `versionInfo` -- what is actually on screen --
-    /// rather than `selectedRef`. That is what makes the initial state
-    /// correct: `selectedRef` starts `nil` (meaning "the default"), and only
-    /// the loaded summary knows the default resolved to `main`.
-    private func entry(kind: RefKind, name: String, label: String) -> some View {
-        let isCurrent = kind == currentKind && name == versionInfo.branch
-        return Button {
-            selectedRef = kind.ref(name)
+    /// Two branches rather than a ternary on `.labelStyle`, because
+    /// `.titleAndIcon` and `.iconOnly` are different types and cannot be
+    /// selected between in an expression.
+    @ViewBuilder
+    private var controlLabel: some View {
+        let label = Label(menu.currentLabel, systemImage: menu.currentKind.symbol)
+            .lineLimit(1)
+            .truncationMode(.middle)
+
+        if presentation == .fullLabel {
+            label.labelStyle(.titleAndIcon)
+        } else {
+            label.labelStyle(.iconOnly)
+        }
+    }
+
+    /// One selectable ref. `isCurrent` is decided by `RefMenuModel` against
+    /// what is actually on screen, not against `selectedRef` -- which starts
+    /// `nil`, meaning "whatever the default resolves to".
+    private func entry(_ row: RefMenuModel.Row) -> some View {
+        Button {
+            selectedRef = row.ref
         } label: {
-            if isCurrent {
-                Label(label, systemImage: "checkmark")
+            if row.isCurrent {
+                Label(row.label, systemImage: "checkmark")
             } else {
-                Text(label)
+                Text(row.label)
             }
         }
     }
-
-    /// What kind of ref is on screen. `refKind` is absent in JSON produced
-    /// before the field existed, where a branch was the only possibility.
-    private var currentKind: RefKind {
-        versionInfo.refKind.flatMap(RefKind.init(rawValue:)) ?? .branch
-    }
-
-    /// The control's own label: the branch or tag name, or an abbreviated
-    /// snapshot id (a full one is 20 characters of base32 and would crowd
-    /// the toolbar).
-    private var currentName: String {
-        currentKind == .snapshot ? Self.abbreviate(versionInfo.branch) : versionInfo.branch
-    }
-
-    // MARK: - Formatting
-
-    /// A snapshot's menu row: `BVP8CH0S \u{00B7} update global attrs \u{00B7} Sep 5, 2026 at 11:45 PM`.
-    ///
-    /// Built as one line because macOS menu items do not lay out stacked
-    /// text reliably; the message and timestamp are dropped when absent
-    /// rather than leaving empty separators behind.
-    private static func label(for snapshot: SnapshotInfo) -> String {
-        var parts = [abbreviate(snapshot.id)]
-        if let message = snapshot.message, !message.isEmpty {
-            parts.append(truncate(message))
-        }
-        if let wroteAt = snapshot.wroteAt, let formatted = formatTimestamp(wroteAt) {
-            parts.append(formatted)
-        }
-        return parts.joined(separator: " \u{00B7} ")
-    }
-
-    private static func abbreviate(_ id: String) -> String {
-        String(id.prefix(8))
-    }
-
-    private static func truncate(_ message: String, limit: Int = 48) -> String {
-        message.count <= limit ? message : "\(message.prefix(limit))\u{2026}"
-    }
-
-    /// Renders an RFC 3339 timestamp in the viewer's locale, or returns
-    /// `nil` so the caller can leave it out.
-    ///
-    /// Two parsers because Icechunk writes microsecond precision
-    /// (`...:49.906701+00:00`) but not every producer does, and
-    /// `ISO8601DateFormatter` fails outright on a fractional part it was not
-    /// configured to expect rather than ignoring it.
-    private static func formatTimestamp(_ raw: String) -> String? {
-        guard let date = fractionalParser.date(from: raw) ?? wholeSecondParser.date(from: raw) else {
-            return nil
-        }
-        return date.formatted(date: .abbreviated, time: .shortened)
-    }
-
-    private static let fractionalParser: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let wholeSecondParser: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
 }

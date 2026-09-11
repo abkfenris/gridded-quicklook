@@ -162,10 +162,9 @@ struct SidebarNode: Identifiable, Hashable {
 /// picker in the sidebar's section of the window's titlebar.
 struct SidebarView: View {
     let root: GroupSummary
-    /// The repository's version history, or `nil` for the formats that have
-    /// none -- which is every format but Icechunk. `nil` contributes no
-    /// toolbar item at all, leaving the titlebar with just the toggle.
-    let versionInfo: VersionInfo?
+    /// The ref menu's contents, or `nil` for the formats with no version
+    /// history -- which is every format but Icechunk.
+    let refMenu: RefMenuModel?
     @Binding var selectedRef: String?
     /// Drives the spinner beside the picker. It belongs to this view rather
     /// than to the window because the ref picker is what triggers the
@@ -173,6 +172,13 @@ struct SidebarView: View {
     /// explains why the tree below has not changed yet.
     let isReloading: Bool
     @Binding var selection: SidebarItem?
+
+    /// The sidebar column's current width, observed from the list's own
+    /// geometry. This is the input to the ref control's fit decision -- the
+    /// toolbar itself will not tell an item how much room it has, so the
+    /// column underneath it is the closest available proxy, and it tracks
+    /// live as the split divider is dragged.
+    @State private var sidebarWidth: CGFloat = 0
 
     var body: some View {
         list
@@ -185,32 +191,48 @@ struct SidebarView: View {
     /// declared here disappear when the sidebar collapses, which is the
     /// behavior we want for the picker specifically -- a collapsed sidebar
     /// has no tree for a ref to apply to.
+    ///
+    /// The `ToolbarItem` itself is unconditional, and that is load-bearing:
+    /// a `ToolbarItem` that comes and goes with a condition gets torn out
+    /// of and put back into the window's toolbar on each rebuild, and
+    /// AppKit does not reliably re-add it -- the symptom was the whole
+    /// control vanishing after a ref switch until the sidebar was toggled.
+    /// Keeping one stable item and varying only its *contents* keeps the
+    /// toolbar's own structure fixed for the window's lifetime.
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        if let versionInfo {
-            // `.automatic`, not `.navigation`: `.navigation` names the
-            // window's title area, which is on the detail side of the
-            // split, so it drags the item across the divider regardless of
-            // which column declared it. `.automatic` lets the item stay
-            // with its own column's toolbar section.
-            ToolbarItem(placement: .automatic) {
-                // One item holding both controls, not two: a second
-                // `ToolbarItem` is free to be reordered or swept into the
-                // overflow menu independently, and the spinner is only
-                // meaningful directly beside the control that started the
-                // reload.
-                HStack(spacing: 6) {
-                    RefPicker(versionInfo: versionInfo, selectedRef: $selectedRef)
-                        // Titlebar width is scarce and a ref name can be
-                        // arbitrarily long; the picker truncates in the
-                        // middle rather than pushing the toggle around.
-                        .frame(maxWidth: 200)
-
-                    if isReloading {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
+        // `.automatic`, not `.navigation`: `.navigation` names the window's
+        // title area, which is on the detail side of the split, so it drags
+        // the item across the divider regardless of which column declared
+        // it. `.automatic` lets the item stay with its own column's toolbar
+        // section.
+        ToolbarItem(placement: .automatic) {
+            // One item holding both controls, not two: a second
+            // `ToolbarItem` is free to be reordered or swept into the
+            // overflow menu independently, and the spinner is only
+            // meaningful directly beside the control that started the
+            // reload.
+            HStack(spacing: 6) {
+                if let refMenu {
+                    // No width constraint here: `RefPicker` sets its own
+                    // ceiling, and a second competing frame would only
+                    // obscure which one the toolbar actually measures.
+                    RefPicker(
+                        menu: refMenu,
+                        presentation: RefMenuModel.presentation(
+                            label: refMenu.currentLabel,
+                            sidebarWidth: sidebarWidth
+                        ),
+                        selectedRef: $selectedRef
+                    )
                 }
+
+                // Always built, faded rather than removed: appearing and
+                // disappearing mid-reload is exactly the kind of churn that
+                // destabilizes the enclosing toolbar item.
+                ProgressView()
+                    .controlSize(.small)
+                    .opacity(isReloading ? 1 : 0)
             }
         }
     }
@@ -247,6 +269,19 @@ struct SidebarView: View {
                         OutlineGroup(node, children: \.children) { row(for: $0) }
                     }
                 }
+            }
+        }
+        // Reports the column's width so the ref control can decide whether
+        // its label fits. A background `GeometryReader` measures without
+        // participating in layout, and re-reports live while the split
+        // divider is dragged. `initial: true` covers the first pass, where
+        // the width would otherwise stay 0 until something moved.
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onChange(of: proxy.size.width, initial: true) { _, width in
+                        sidebarWidth = width
+                    }
             }
         }
     }

@@ -333,6 +333,27 @@ struct VersionInfo: Decodable, Hashable {
         case truncated
     }
 
+    /// Memberwise initializer, written out by hand.
+    ///
+    /// Declaring `init(from:)` below suppresses the one Swift would
+    /// otherwise synthesize, and tests need to build `VersionInfo` values
+    /// directly rather than round-tripping every fixture through JSON.
+    init(
+        branch: String,
+        refKind: String?,
+        branches: [String],
+        tags: [String],
+        ancestry: [SnapshotInfo],
+        truncated: Bool
+    ) {
+        self.branch = branch
+        self.refKind = refKind
+        self.branches = branches
+        self.tags = tags
+        self.ancestry = ancestry
+        self.truncated = truncated
+    }
+
     /// Hand-written so `branches` and `tags` can default to empty.
     ///
     /// Both are `#[serde(default)]` in Rust (they were added after the type

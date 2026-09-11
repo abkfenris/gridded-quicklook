@@ -102,6 +102,35 @@ targets:
         embed: true
         codeSign: true
 
+  # Pure-logic unit tests. Deliberately *not* hosted in the ndLook app
+  # (no TEST_HOST/BUNDLE_LOADER): the sources under test are compiled
+  # straight into this bundle instead, so `xcodebuild test` neither
+  # launches the sandboxed app nor links the Rust staticlib. That keeps the
+  # test run fast and headless -- it needs no window server and no
+  # entitlements.
+  #
+  # The tradeoff is that only files listed here are testable. Everything
+  # listed is SwiftUI-free by construction (RefMenuModel imports Foundation
+  # only, DatasetModel is plain Codable structs); anything that imports
+  # SwiftUI cannot join this list without dragging in a view hierarchy, so
+  # logic that needs covering belongs in a type like RefMenuModel rather
+  # than inside a View.
+  NDLookTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+      - path: App/RefMenuModel.swift
+      - path: App/DatasetModel.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alexkerney.ndlook.tests
+        PRODUCT_NAME: NDLookTests
+        # The project-wide default is NO (both app targets ship a
+        # hand-written Info.plist); a test bundle has nothing to declare, so
+        # let Xcode generate one.
+        GENERATE_INFOPLIST_FILE: YES
+
   PreviewExtension:
     type: app-extension
     platform: macOS
@@ -161,3 +190,27 @@ targets:
             env -u SDKROOT -u MACOSX_DEPLOYMENT_TARGET -u DEVELOPER_DIR \
             cargo build --release -p ndlook-ffi
         basedOnDependencyAnalysis: false
+
+########################################################################
+# Schemes
+#
+# Declared explicitly so `xcodebuild test -scheme ndLook` has a test
+# action to run. Without a scheme definition XcodeGen generates one per
+# target with an empty test action, and `xcodebuild test` fails with
+# "Scheme ndLook is not currently configured for the test action".
+#
+# ndLook stays the single scheme both `mise run build-app` and
+# `mise run test-app` drive, so there is one name to remember.
+########################################################################
+schemes:
+  ndLook:
+    build:
+      targets:
+        ndLook: all
+        NDLookTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - NDLookTests
