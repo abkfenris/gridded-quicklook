@@ -114,7 +114,11 @@ if ! codesign --verify --deep --strict "$APP_DST"; then
 fi
 
 log "Opening $APP_NAME once so macOS registers it and its extension..."
-open "$APP_DST"
+# Hidden (-j) and in the background (-g): the app is now a document-based
+# viewer, so a bare launch with no document presents an Open panel. The
+# launch only exists so Launch Services registers the app, its document
+# types, and the appex -- no window needs to reach the user.
+open -g -j "$APP_DST"
 
 log "Registering the preview extension with pluginkit (best effort)..."
 APPEX="$APP_DST/Contents/PlugIns/PreviewExtension.appex"
@@ -137,7 +141,11 @@ Finish enabling the extension in:
   System Settings -> General -> Login Items & Extensions -> Quick Look
   (look for "ndLook Preview" and turn it on)
 
+The same instructions live in the app itself: ndLook -> About ndLook,
+which also has a button that opens the right System Settings pane.
+
 Then select a .nc/.h5 file, a .zarr store, or an .icechunk repo in Finder
-and press Space to preview it. (Directory stores need the .zarr/.icechunk
-extension on the folder name for Finder to offer a preview.)
+and press Space to preview it, or double-click to open it in the ndLook
+viewer. (Directory stores need the .zarr/.icechunk extension on the folder
+name for Finder to offer either.)
 EOF

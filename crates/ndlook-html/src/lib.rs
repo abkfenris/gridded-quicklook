@@ -178,19 +178,39 @@ fn render_footer(summary: &DatasetSummary, source_name: &str, file_size: Option<
     footer
 }
 
+/// The label for the previewed ref's row, from [`VersionInfo::ref_kind`].
+///
+/// `None` means the summary predates that field (or came from JSON that
+/// omits it), and "assume branch" is the right guess there: `main`'s tip
+/// was the only ref the reader could resolve before `ref_kind` existed.
+/// An unrecognized kind reads as a branch too, so a kind added to the
+/// reader later still renders a sensible row instead of nothing.
+fn ref_label(ref_kind: Option<&str>) -> &'static str {
+    match ref_kind {
+        Some("tag") => "Tag",
+        Some("snapshot") => "Snapshot",
+        _ => "Branch",
+    }
+}
+
 fn render_version_info(v: &VersionInfo) -> String {
     let mut s = String::from("<dl class='gq-version-info'>");
     s.push_str(&format!(
-        "<dt>Branch</dt><dd>{}</dd>",
+        "<dt>{}</dt><dd>{}</dd>",
+        ref_label(v.ref_kind.as_deref()),
         render::html_escape(&v.branch)
     ));
 
     if let Some(tip) = v.ancestry.first() {
-        let short_id: String = tip.id.chars().take(8).collect();
-        s.push_str(&format!(
-            "<dt>Snapshot</dt><dd><code>{}</code></dd>",
-            render::html_escape(&short_id)
-        ));
+        // Previewing a bare snapshot makes the row above *be* the tip id,
+        // in full; repeating it abbreviated helps nobody.
+        if v.branch != tip.id {
+            let short_id: String = tip.id.chars().take(8).collect();
+            s.push_str(&format!(
+                "<dt>Snapshot</dt><dd><code>{}</code></dd>",
+                render::html_escape(&short_id)
+            ));
+        }
         if let Some(msg) = &tip.message {
             s.push_str(&format!(
                 "<dt>Message</dt><dd>{}</dd>",
@@ -240,6 +260,72 @@ fn render_version_info(v: &VersionInfo) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use ndlook_meta::model::SnapshotInfo;
+
+    fn version_info(branch: &str, ref_kind: &str, tip_id: &str) -> VersionInfo {
+        VersionInfo {
+            branch: branch.to_owned(),
+            ref_kind: Some(ref_kind.to_owned()),
+            branches: Vec::new(),
+            tags: Vec::new(),
+            ancestry: vec![SnapshotInfo {
+                id: tip_id.to_owned(),
+                message: Some("initial commit".to_owned()),
+                wrote_at: None,
+            }],
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn ref_label_names_the_kind_of_ref_previewed() {
+        assert_eq!(ref_label(Some("branch")), "Branch");
+        assert_eq!(ref_label(Some("tag")), "Tag");
+        assert_eq!(ref_label(Some("snapshot")), "Snapshot");
+    }
+
+    /// A summary from before `ref_kind` existed, or from a reader that
+    /// grew a kind this renderer doesn't know, still gets a label.
+    #[test]
+    fn an_unknown_or_missing_ref_kind_falls_back_to_branch() {
+        assert_eq!(ref_label(None), "Branch");
+        assert_eq!(ref_label(Some("as-of")), "Branch");
+    }
+
+    #[test]
+    fn a_tag_is_labeled_as_a_tag_not_a_branch() {
+        let html = render_version_info(&version_info("v1", "tag", "ABCDEF0123456789"));
+        assert!(html.contains("<dt>Tag</dt><dd>v1</dd>"), "got: {html}");
+        assert!(!html.contains("<dt>Branch</dt>"), "got: {html}");
+        // The tip is a different id than the ref, so it keeps its own row.
+        assert!(
+            html.contains("<dt>Snapshot</dt><dd><code>ABCDEF01"),
+            "got: {html}"
+        );
+    }
+
+    /// Previewing a bare snapshot: the ref row is the tip id, so the
+    /// abbreviated tip row would be a duplicate and is dropped — but the
+    /// tip's message still renders.
+    #[test]
+    fn a_snapshot_ref_is_not_repeated_as_its_own_tip_row() {
+        let html = render_version_info(&version_info(
+            "ABCDEF0123456789",
+            "snapshot",
+            "ABCDEF0123456789",
+        ));
+        assert!(
+            html.contains("<dt>Snapshot</dt><dd>ABCDEF0123456789</dd>"),
+            "got: {html}"
+        );
+        assert_eq!(
+            html.matches("<dt>Snapshot</dt>").count(),
+            1,
+            "the tip row should not repeat the ref row, got: {html}"
+        );
+        assert!(html.contains("initial commit"), "got: {html}");
+    }
 
     #[test]
     fn escapes_all_five_html_special_chars() {

@@ -22,8 +22,8 @@ files come out:
 Each SVG is grouped into `<g id="layer-...">` groups (shadow, background,
 midground, foreground) so the artwork can be split into an Icon Composer
 `.icon` bundle for macOS 26 later, with the flat PNG files as the fallback for
-macOS 13 to 15. No live text (the letters are traced outlines), no
-gradients, a short flat palette.
+macOS 15 (the app's deployment floor). No live text (the letters are traced
+outlines), no gradients, a short flat palette.
 
 Run it directly (no dependencies), then `node assets.mjs` to render the
 asset catalog. The design history is in the git log of the

@@ -1090,9 +1090,9 @@ mod tests {
         assert_eq!(names(&root.data_vars), vec!["only"]);
     }
 
-    /// The JSON snapshots can't see this: `AttrValue::Float(NaN)` serializes
-    /// as `null`, indistinguishable from a missing value, so the decode is
-    /// asserted here directly.
+    /// The JSON snapshots show the decoded value as `{"Float":"NaN"}`, but
+    /// only after `AttrValue`'s wire encoding has had its say; the decode
+    /// itself is asserted here directly, on the `f64`.
     #[test]
     fn base64_fill_value_decodes_to_the_float_it_encodes() {
         // zarr-python's V3 encoder writes float64 NaN as the base64 of its

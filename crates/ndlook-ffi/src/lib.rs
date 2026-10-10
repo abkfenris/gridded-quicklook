@@ -19,8 +19,8 @@ use std::path::Path;
 
 use ndlook_html::{html_escape, render_page};
 use ndlook_meta::{
-    DatasetSummary, MetaError, is_icechunk_repo, summarize_grib, summarize_icechunk,
-    summarize_netcdf, summarize_zarr,
+    DatasetSummary, IcechunkRef, ListRefs, MetaError, is_icechunk_repo, summarize_grib,
+    summarize_icechunk_at, summarize_netcdf, summarize_zarr,
 };
 
 /// A fixed, dynamic-content-free fallback used only if we somehow fail to
@@ -28,6 +28,13 @@ use ndlook_meta::{
 /// contained a NUL byte). This string is a compile-time constant, so it can
 /// never itself trip that failure mode.
 const FALLBACK_ERROR_HTML: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><title>Preview unavailable</title></head><body><div class=\"gq-error\"><h1>Preview unavailable</h1><p>An internal error occurred while rendering this preview.</p></div></body></html>";
+
+/// The JSON counterpart of [`FALLBACK_ERROR_HTML`], used only if we somehow
+/// fail to build even the ordinary `{"error": ...}` envelope (e.g. because
+/// the underlying message contained a NUL byte). This string is a
+/// compile-time constant, so it can never itself trip that failure mode.
+const FALLBACK_ERROR_JSON: &str =
+    "{\"error\":\"An internal error occurred while summarizing this dataset.\"}";
 
 /// File extensions (lowercased, without the leading dot) routed through
 /// `ndlook-meta`'s NetCDF/HDF5 reader even when the file's signature
@@ -75,19 +82,71 @@ const ZARR_ROOT_MARKERS: &[&str] = &["zarr.json", ".zgroup", ".zarray", ".zmetad
 pub unsafe extern "C" fn ndlook_render_html(path: *const c_char) -> *mut c_char {
     let html = panic::catch_unwind(AssertUnwindSafe(|| render_html_inner(path)))
         .unwrap_or_else(|_| error_card("ndlook-ffi panicked while rendering this preview."));
-    string_to_c(html)
+    string_to_c(html, FALLBACK_ERROR_HTML)
 }
 
-/// Releases a string previously returned by [`ndlook_render_html`].
+/// Summarizes the dataset at `path` as JSON.
 ///
-/// Passing NULL is a no-op. Passing any other pointer not obtained from
-/// [`ndlook_render_html`], or calling this more than once on the same
-/// pointer, is undefined behavior.
+/// `path` must be a valid, NUL-terminated C string, or NULL. `icechunk_ref`
+/// selects which version of an Icechunk repository to preview:
+///
+/// - NULL means the default behavior -- `main`'s tip for an Icechunk repo,
+///   and simply ignored for a regular file or a plain Zarr store, neither of
+///   which has version history to select from.
+/// - Non-NULL must be a valid, NUL-terminated C string of the form
+///   `"kind:value"`, where `kind` is one of `branch`, `tag`, or `snapshot`
+///   (e.g. `"branch:main"`, `"tag:v1"`, `"snapshot:ABC123"`); anything else
+///   is a malformed-ref error. A well-formed ref given for a non-Icechunk
+///   `path` is likewise ignored rather than treated as an error, matching
+///   the NULL case -- the caller doesn't have to know what kind of store it
+///   is pointing at before asking for its default preview.
+///
+/// An Icechunk summary produced here also carries the repo's full branch
+/// and tag lists (unlike [`ndlook_render_html`]'s, which doesn't show
+/// them), so the caller can offer a ref picker without a second call.
+///
+/// The returned pointer is always non-null and always points to a valid,
+/// NUL-terminated UTF-8 C string containing a JSON object: on success,
+/// `{"summary": <summary>}`, where `<summary>` is a serialized
+/// [`DatasetSummary`]; on any failure (bad input, a malformed
+/// `icechunk_ref`, an unsupported file type, an unreadable file, or an
+/// internal panic), `{"error": "<message>"}`. This function never panics
+/// across the FFI boundary.
+///
+/// The caller owns the returned pointer and must release it with
+/// [`ndlook_free_string`] exactly once.
+///
+/// # Safety
+///
+/// `path` and `icechunk_ref`, if non-null, must each point to a valid,
+/// NUL-terminated C string that remains valid for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ndlook_summarize_json(
+    path: *const c_char,
+    icechunk_ref: *const c_char,
+) -> *mut c_char {
+    // SAFETY: forwarding the same raw pointers this function received,
+    // under the same non-null-or-valid-for-the-call contract documented
+    // above.
+    let json = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
+        summarize_json_inner(path, icechunk_ref)
+    }))
+    .unwrap_or_else(|_| error_envelope("ndlook-ffi panicked while summarizing this dataset."));
+    string_to_c(json, FALLBACK_ERROR_JSON)
+}
+
+/// Releases a string previously returned by [`ndlook_render_html`] or
+/// [`ndlook_summarize_json`].
+///
+/// Passing NULL is a no-op. Passing any other pointer not obtained from one
+/// of those functions, or calling this more than once on the same pointer,
+/// is undefined behavior.
 ///
 /// # Safety
 ///
 /// `ptr` must be either NULL or a pointer previously returned by
-/// [`ndlook_render_html`] that has not already been freed.
+/// [`ndlook_render_html`] or [`ndlook_summarize_json`] that has not
+/// already been freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ndlook_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -103,44 +162,21 @@ pub unsafe extern "C" fn ndlook_free_string(ptr: *mut c_char) {
 /// with every fallible step reduced to an error card rather than a `Result`
 /// that could accidentally cross the FFI boundary.
 fn render_html_inner(path: *const c_char) -> String {
-    if path.is_null() {
-        return error_card("No file path was provided.");
-    }
-
-    // SAFETY: `path` is non-null per the check above, and the caller's
-    // contract guarantees it is a valid, NUL-terminated C string for the
-    // duration of this call.
-    let c_str = unsafe { CStr::from_ptr(path) };
-    let path_str = match c_str.to_str() {
-        Ok(s) => s,
-        Err(_) => return error_card("The file path was not valid UTF-8."),
+    // SAFETY: forwarding the same raw pointer this function received, under
+    // the same non-null-or-valid-for-the-call contract `ndlook_render_html`
+    // documents; `path_str` is used only within this call.
+    let path_str = match unsafe { decode_path(path) } {
+        Ok(path_str) => path_str,
+        Err(message) => return error_card(message),
     };
     let path = Path::new(path_str);
 
-    let summary = if path.is_dir() {
-        match summarize_directory_store(path) {
-            Some(result) => result,
-            None => {
-                return error_card(
-                    "Unsupported folder: not a Zarr store or an Icechunk repository.",
-                );
-            }
-        }
-    } else {
-        match summarize_file(path) {
-            Some(result) => result,
-            None => {
-                return match path.extension().and_then(|e| e.to_str()) {
-                    Some(ext) => error_card(&format!("Unsupported file type \".{ext}\".")),
-                    None => error_card("Unsupported file: no recognizable file extension."),
-                };
-            }
-        }
-    };
-
-    let summary = match summary {
+    // The preview renders one ref's tree and history and never shows the
+    // repo's other branches and tags, so it doesn't pay to enumerate them
+    // -- see `ListRefs`.
+    let summary = match summarize_path(path, None, ListRefs::No) {
         Ok(summary) => summary,
-        Err(err) => return error_card(&format!("{err}")),
+        Err(message) => return error_card(&message),
     };
 
     // Directory stores deliberately report no size: totalling one would mean
@@ -157,6 +193,104 @@ fn render_html_inner(path: *const c_char) -> String {
         .unwrap_or(path_str);
 
     render_page(&summary, source_name, file_size)
+}
+
+/// Does the actual work of turning raw path/ref pointers into a JSON
+/// envelope string, with every fallible step reduced to an `Err` envelope
+/// rather than a `Result` that could accidentally cross the FFI boundary.
+///
+/// # Safety
+///
+/// Same contract as [`ndlook_summarize_json`]: `path` and `icechunk_ref`,
+/// if non-null, must each point to a valid, NUL-terminated C string that
+/// remains valid for the duration of this call.
+unsafe fn summarize_json_inner(path: *const c_char, icechunk_ref: *const c_char) -> String {
+    // SAFETY: forwarding the same raw pointer this function received, under
+    // the contract documented above; `path_str` is used only within this
+    // call.
+    let path_str = match unsafe { decode_path(path) } {
+        Ok(path_str) => path_str,
+        Err(message) => return error_envelope(message),
+    };
+    let path = Path::new(path_str);
+
+    let reference = if icechunk_ref.is_null() {
+        None
+    } else {
+        // SAFETY: `icechunk_ref` is non-null per the check above, and the
+        // caller's contract guarantees it is a valid, NUL-terminated C
+        // string for the duration of this call.
+        let ref_c_str = unsafe { CStr::from_ptr(icechunk_ref) };
+        match ref_c_str.to_str() {
+            // `IcechunkRef`'s `FromStr` owns both the `"kind:value"`
+            // grammar and the message for anything that doesn't fit it,
+            // which is already phrased for the caller.
+            Ok(raw) => match raw.parse::<IcechunkRef>() {
+                Ok(reference) => Some(reference),
+                Err(err) => return error_envelope(&err.to_string()),
+            },
+            Err(_) => return error_envelope("The Icechunk ref was not valid UTF-8."),
+        }
+    };
+
+    // Unlike the preview, the app's JSON consumer offers a ref picker, so
+    // it does want the repo's branch and tag lists -- see `ListRefs`.
+    match summarize_path(path, reference.as_ref(), ListRefs::Yes) {
+        Ok(summary) => summary_envelope(&summary),
+        Err(message) => error_envelope(&message),
+    }
+}
+
+/// Decodes a raw path argument into a `&str`, or the user-facing message
+/// explaining why it couldn't be.
+///
+/// Shared by both entry points so a NULL or non-UTF-8 path is reported
+/// identically whichever one was called.
+///
+/// # Safety
+///
+/// `path`, if non-null, must point to a valid, NUL-terminated C string that
+/// stays valid for as long as the returned `&str` is used.
+unsafe fn decode_path<'a>(path: *const c_char) -> Result<&'a str, &'static str> {
+    if path.is_null() {
+        return Err("No file path was provided.");
+    }
+    // SAFETY: `path` is non-null per the check above, and the caller's
+    // contract guarantees it is a valid, NUL-terminated C string for the
+    // lifetime the caller asked for.
+    let c_str = unsafe { CStr::from_ptr(path) };
+    c_str
+        .to_str()
+        .map_err(|_| "The file path was not valid UTF-8.")
+}
+
+/// Reads whatever is at `path` into a [`DatasetSummary`], routing on what
+/// the path actually is and reducing every failure to a user-facing
+/// message.
+///
+/// Shared by both entry points: these messages are what
+/// [`ndlook_render_html`] shows in its error card and what
+/// [`ndlook_summarize_json`] returns in its error envelope, so the two
+/// can't drift apart.
+///
+/// `reference` and `list_refs` reach the Icechunk reader and are ignored
+/// for every other kind of path.
+fn summarize_path(
+    path: &Path,
+    reference: Option<&IcechunkRef>,
+    list_refs: ListRefs,
+) -> Result<DatasetSummary, String> {
+    let summary = if path.is_dir() {
+        summarize_directory_store(path, reference, list_refs).ok_or_else(|| {
+            "Unsupported folder: not a Zarr store or an Icechunk repository.".to_owned()
+        })?
+    } else {
+        summarize_file(path).ok_or_else(|| match path.extension().and_then(|e| e.to_str()) {
+            Some(ext) => format!("Unsupported file type \".{ext}\"."),
+            None => "Unsupported file: no recognizable file extension.".to_owned(),
+        })?
+    };
+    summary.map_err(|err| format!("{err}"))
 }
 
 /// Routes a regular file by what it contains first (its signature), then
@@ -244,7 +378,16 @@ fn read_at(file: &mut fs::File, offset: u64, buf: &mut [u8]) -> bool {
 /// Finder shows `.zarr`/`.icechunk` bundles as packages, but a store may
 /// equally well be named anything at all. `None` means the directory is
 /// neither an Icechunk repo nor a Zarr store.
-fn summarize_directory_store(path: &Path) -> Option<Result<DatasetSummary, MetaError>> {
+///
+/// `icechunk_ref` names the ref to preview when `path` turns out to be an
+/// Icechunk repo (`None` means `main`'s tip), and `list_refs` says whether
+/// to also enumerate that repo's branches and tags; both are ignored
+/// entirely for a Zarr store, which has no version history to select from.
+fn summarize_directory_store(
+    path: &Path,
+    icechunk_ref: Option<&IcechunkRef>,
+    list_refs: ListRefs,
+) -> Option<Result<DatasetSummary, MetaError>> {
     // Zarr's root markers are checked first: they are definitive files at
     // the root, while `is_icechunk_repo` is a directory-layout sniff that a
     // Zarr store could satisfy by coincidence (child groups named
@@ -257,22 +400,45 @@ fn summarize_directory_store(path: &Path) -> Option<Result<DatasetSummary, MetaE
         return Some(summarize_zarr(path));
     }
     if is_icechunk_repo(path) {
-        return Some(summarize_icechunk(path));
+        return Some(summarize_icechunk_at(path, icechunk_ref, list_refs));
     }
     None
 }
 
 /// Converts a Rust `String` into an owned, NUL-terminated C string pointer,
-/// falling back to a fixed, content-free error page in the (essentially
-/// impossible, but not `unwrap`-safe) case that the string contains an
-/// interior NUL byte.
-fn string_to_c(html: String) -> *mut c_char {
-    match CString::new(html) {
+/// falling back to `fallback` -- a fixed, content-free error page or JSON
+/// envelope -- in the (essentially impossible, but not `unwrap`-safe) case
+/// that `content` contains an interior NUL byte.
+fn string_to_c(content: String, fallback: &'static str) -> *mut c_char {
+    match CString::new(content) {
         Ok(c_string) => c_string.into_raw(),
-        Err(_) => CString::new(FALLBACK_ERROR_HTML)
-            .expect("FALLBACK_ERROR_HTML is a fixed constant with no NUL bytes")
+        Err(_) => CString::new(fallback)
+            .expect("fallback is a fixed constant with no NUL bytes")
             .into_raw(),
     }
+}
+
+/// Builds the `{"summary": <summary>}` JSON envelope [`ndlook_summarize_json`]
+/// returns on success.
+///
+/// The serialized summary is already a complete JSON object, so wrapping it
+/// is plain concatenation: no second serialization pass over the whole tree,
+/// and no fallible step that could turn a perfectly good summary into an
+/// error.
+fn summary_envelope(summary: &DatasetSummary) -> String {
+    match serde_json::to_string(summary) {
+        Ok(payload) => format!("{{\"summary\":{payload}}}"),
+        Err(err) => error_envelope(&format!("failed to serialize summary: {err}")),
+    }
+}
+
+/// Builds a `{"error": "<message>"}` JSON envelope. Used for every failure
+/// mode in [`ndlook_summarize_json`], mirroring [`error_card`]'s role for
+/// [`ndlook_render_html`]. Going through `serde_json` is what escapes a
+/// message that contains quotes, backslashes or control characters.
+fn error_envelope(message: &str) -> String {
+    serde_json::to_string(&serde_json::json!({ "error": message }))
+        .unwrap_or_else(|_| FALLBACK_ERROR_JSON.to_owned())
 }
 
 /// Renders a small, self-contained HTML document displaying `message` as a
@@ -315,26 +481,76 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
-    /// Round-trips `path` through the C ABI: builds a `CString`, calls
-    /// `ndlook_render_html`, reads the result back out via `CStr`, frees
-    /// it, and returns it as an owned Rust `String`.
+    /// Runs `call` -- one of the C ABI entry points, or anything else that
+    /// hands back a pointer they own -- and turns its result into an owned
+    /// Rust `String`, asserting the never-NULL/always-UTF-8 half of the
+    /// contract and freeing the pointer exactly once. `what` names the
+    /// function in those assertions.
+    fn c_string_result(what: &str, call: impl FnOnce() -> *mut c_char) -> String {
+        let ptr = call();
+        assert!(!ptr.is_null(), "{what} must never return NULL");
+        // SAFETY: `ptr` is non-null per the assertion above and, per the
+        // contract every caller of this helper relies on, points at a
+        // NUL-terminated string produced by `string_to_c` that has not been
+        // freed. It is freed exactly once, below, after the copy.
+        unsafe {
+            let owned = CStr::from_ptr(ptr)
+                .to_str()
+                .unwrap_or_else(|err| panic!("{what} must return valid UTF-8: {err}"))
+                .to_owned();
+            ndlook_free_string(ptr);
+            owned
+        }
+    }
+
+    /// Round-trips `path` through the C ABI.
     fn render(path: &str) -> String {
         let c_path = CString::new(path).expect("test path must not contain NUL bytes");
         // SAFETY: `c_path` is a valid, NUL-terminated C string kept alive
-        // for the duration of the call; the returned pointer is freed
-        // exactly once via `ndlook_free_string` below.
-        unsafe {
-            let ptr = ndlook_render_html(c_path.as_ptr());
-            assert!(!ptr.is_null(), "ndlook_render_html must never return NULL");
+        // for the duration of the call.
+        c_string_result("ndlook_render_html", || unsafe {
+            ndlook_render_html(c_path.as_ptr())
+        })
+    }
 
-            let html = CStr::from_ptr(ptr)
-                .to_str()
-                .expect("ndlook_render_html must return valid UTF-8")
-                .to_owned();
+    /// Round-trips `path`/`icechunk_ref` through the C ABI. A `None`
+    /// `icechunk_ref` stays a null pointer rather than becoming a
+    /// `CString`, since NULL is the documented "no ref given" input.
+    fn summarize_json(path: &str, icechunk_ref: Option<&str>) -> String {
+        let c_path = CString::new(path).expect("test path must not contain NUL bytes");
+        let c_ref =
+            icechunk_ref.map(|r| CString::new(r).expect("test ref must not contain NUL bytes"));
+        let ref_ptr = c_ref.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
+        // SAFETY: `c_path` is a valid, NUL-terminated C string kept alive
+        // for the duration of the call; `ref_ptr` is either NULL or
+        // likewise a valid, NUL-terminated C string kept alive via `c_ref`
+        // for the same duration.
+        c_string_result("ndlook_summarize_json", || unsafe {
+            ndlook_summarize_json(c_path.as_ptr(), ref_ptr)
+        })
+    }
 
-            ndlook_free_string(ptr);
-            html
-        }
+    /// Parses `json` and returns its top-level `"error"` string, panicking
+    /// with the raw JSON if the envelope wasn't an error envelope.
+    fn expect_error(json: &str) -> String {
+        let value: serde_json::Value = serde_json::from_str(json).expect("expected valid JSON");
+        value
+            .get("error")
+            .unwrap_or_else(|| panic!("expected an \"error\" field, got: {json}"))
+            .as_str()
+            .expect("\"error\" field must be a string")
+            .to_owned()
+    }
+
+    /// Parses `json` and returns its top-level `"summary"` object,
+    /// panicking with the raw JSON if the envelope wasn't a success
+    /// envelope.
+    fn expect_summary(json: &str) -> serde_json::Value {
+        let mut value: serde_json::Value = serde_json::from_str(json).expect("expected valid JSON");
+        value
+            .get_mut("summary")
+            .unwrap_or_else(|| panic!("expected a \"summary\" field, got: {json}"))
+            .take()
     }
 
     fn fixture_path(relative: &str) -> String {
@@ -542,15 +758,10 @@ mod tests {
     #[test]
     fn null_path_pointer_renders_an_error_card_instead_of_crashing() {
         // SAFETY: NULL is an explicitly documented valid input for
-        // `ndlook_render_html`, and the returned pointer is freed exactly
-        // once via `ndlook_free_string`.
-        let html = unsafe {
-            let ptr = ndlook_render_html(std::ptr::null());
-            assert!(!ptr.is_null());
-            let html = CStr::from_ptr(ptr).to_str().unwrap().to_owned();
-            ndlook_free_string(ptr);
-            html
-        };
+        // `ndlook_render_html`.
+        let html = c_string_result("ndlook_render_html", || unsafe {
+            ndlook_render_html(std::ptr::null())
+        });
 
         assert!(html.contains("Preview unavailable"));
     }
@@ -569,6 +780,128 @@ mod tests {
                 !html.as_bytes().contains(&0),
                 "rendered HTML must never contain an embedded NUL byte"
             );
+        }
+    }
+
+    #[test]
+    fn summarize_json_returns_a_summary_envelope_for_a_netcdf_fixture() {
+        let json = summarize_json(&fixture_path("simple.nc"), None);
+        let summary = expect_summary(&json);
+        assert_eq!(summary["format"], "NetCdf");
+        assert!(
+            !json.contains("\"error\""),
+            "a valid fixture must not also carry an \"error\" field, got: {json}"
+        );
+    }
+
+    #[test]
+    fn summarize_json_resolves_an_icechunk_tag() {
+        let json = summarize_json(&fixture_path("icechunk_repo.icechunk"), Some("tag:v1"));
+        let version_info = &expect_summary(&json)["version_info"];
+        assert_eq!(version_info["branch"], "v1");
+        assert_eq!(version_info["ref_kind"], "tag");
+    }
+
+    #[test]
+    fn summarize_json_defaults_an_icechunk_repo_to_main() {
+        let json = summarize_json(&fixture_path("icechunk_repo.icechunk"), None);
+        let version_info = &expect_summary(&json)["version_info"];
+        assert_eq!(version_info["branch"], "main");
+        assert_eq!(version_info["ref_kind"], "branch");
+    }
+
+    /// The JSON path asks the Icechunk reader to enumerate refs (unlike the
+    /// preview path), so the app has something to build a ref picker from.
+    #[test]
+    fn summarize_json_lists_an_icechunk_repos_branches_and_tags() {
+        let json = summarize_json(&fixture_path("icechunk_repo.icechunk"), None);
+        let version_info = &expect_summary(&json)["version_info"];
+        assert_eq!(version_info["branches"], serde_json::json!(["main"]));
+        assert_eq!(version_info["tags"], serde_json::json!(["v1"]));
+    }
+
+    /// The `snapshot:` arm, end to end: a real id read back out of a
+    /// default summary must resolve, and must come back naming itself.
+    #[test]
+    fn summarize_json_resolves_a_bare_snapshot_id() {
+        let path = fixture_path("icechunk_repo.icechunk");
+        let default = summarize_json(&path, None);
+        let tip = expect_summary(&default)["version_info"]["ancestry"][0]["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("expected a tip snapshot id, got: {default}"))
+            .to_owned();
+
+        let json = summarize_json(&path, Some(&format!("snapshot:{tip}")));
+        let version_info = &expect_summary(&json)["version_info"];
+        assert_eq!(version_info["ref_kind"], "snapshot");
+        assert_eq!(version_info["branch"], tip);
+        assert_eq!(version_info["ancestry"][0]["id"], tip);
+    }
+
+    #[test]
+    fn summarize_json_returns_an_error_envelope_for_a_missing_file() {
+        let json = summarize_json(&fixture_path("does-not-exist.nc"), None);
+        expect_error(&json);
+    }
+
+    #[test]
+    fn summarize_json_returns_an_error_envelope_for_a_malformed_ref() {
+        let json = summarize_json(&fixture_path("icechunk_repo.icechunk"), Some("bogus"));
+        let error = expect_error(&json);
+        assert!(
+            error.contains("invalid Icechunk ref"),
+            "expected a malformed-ref message, got: {error}"
+        );
+    }
+
+    #[test]
+    fn summarize_json_returns_an_error_envelope_for_an_unknown_branch() {
+        let json = summarize_json(&fixture_path("icechunk_repo.icechunk"), Some("branch:nope"));
+        expect_error(&json);
+    }
+
+    #[test]
+    fn summarize_json_returns_an_error_envelope_for_a_null_path() {
+        // SAFETY: NULL is an explicitly documented valid input for both of
+        // `ndlook_summarize_json`'s arguments.
+        let json = c_string_result("ndlook_summarize_json", || unsafe {
+            ndlook_summarize_json(std::ptr::null(), std::ptr::null())
+        });
+        expect_error(&json);
+    }
+
+    #[test]
+    fn summarize_json_returns_a_parseable_envelope_for_every_outcome() {
+        for (path, icechunk_ref) in [
+            (fixture_path("simple.nc"), None),
+            (fixture_path("does-not-exist.nc"), None),
+            (fixture_path("icechunk_repo.icechunk"), Some("tag:v1")),
+            (fixture_path("icechunk_repo.icechunk"), Some("bogus")),
+        ] {
+            let json = summarize_json(&path, icechunk_ref);
+            let value: serde_json::Value = serde_json::from_str(&json)
+                .unwrap_or_else(|err| panic!("{path} must yield valid JSON, got {json:?}: {err}"));
+            assert!(
+                value.get("summary").is_some() || value.get("error").is_some(),
+                "every envelope carries exactly one of summary/error, got: {json}"
+            );
+        }
+    }
+
+    /// The interior-NUL fallback, tested on [`string_to_c`] itself.
+    ///
+    /// It cannot be reached through the public entry points: nothing in the
+    /// renderer or the serializer can emit a NUL, and reading the result
+    /// back through `CStr` would stop at one anyway, so a test at that
+    /// level could never fail. Here the returned pointer really is the
+    /// fallback constant or the test fails.
+    #[test]
+    fn string_to_c_substitutes_the_fallback_for_content_with_an_interior_nul() {
+        for fallback in [FALLBACK_ERROR_HTML, FALLBACK_ERROR_JSON] {
+            let out = c_string_result("string_to_c", || {
+                string_to_c("before\0after".to_owned(), fallback)
+            });
+            assert_eq!(out, fallback);
         }
     }
 }

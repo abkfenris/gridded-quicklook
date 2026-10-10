@@ -65,6 +65,14 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: mise run test-app
+        # NDLookTests is unhosted and headless (it compiles the sources
+        # under test directly, never launching the sandboxed app), so it
+        # runs fine on a runner with no window session. Signing is disabled
+        # for the same reason as the build step; extra args after `--` are
+        # appended to the task's xcodebuild invocation by mise.
+        run: mise run test-app -- CODE_SIGNING_ALLOWED=NO
+
   # Builds the release ndlook-ffi staticlib for this PR and for its base
   # branch and posts (or updates) one sticky comment with both sizes and the
   # delta. The two builds are independent, so they run as parallel matrix

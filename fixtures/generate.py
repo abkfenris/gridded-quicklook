@@ -167,7 +167,10 @@ def write_icechunk_fixture(ds: xr.Dataset) -> None:
 
     session = repo.writable_session("main")
     ds.to_zarr(session.store, mode="w", zarr_format=3)
-    session.commit("initial data")
+    initial_snapshot_id = session.commit("initial data")
+    # Tag the pre-attrs-update state so the Rust reader's ref-aware tests
+    # have a tag (in addition to `main`) that resolves to an older tree.
+    repo.create_tag("v1", initial_snapshot_id)
 
     session = repo.writable_session("main")
     modified = ds.copy()

@@ -1,10 +1,13 @@
 //! Icechunk repository metadata reader.
 //!
 //! Icechunk repos are version-controlled Zarr v3 hierarchies. This module
-//! opens a *local-filesystem* repo read-only, resolves the `main` branch to
-//! its tip snapshot, and turns that snapshot's node metadata into the same
-//! format-agnostic [`DatasetSummary`] the other readers produce — plus a
-//! [`VersionInfo`] describing the commit history.
+//! opens a *local-filesystem* repo read-only, resolves a ref — the `main`
+//! branch's tip by default, or any [`IcechunkRef`] (branch, tag, or bare
+//! snapshot) a caller names — to a snapshot, and turns that snapshot's node
+//! metadata into the same format-agnostic [`DatasetSummary`] the other
+//! readers produce — plus a [`VersionInfo`] describing the commit history
+//! and, if the caller asks for it ([`ListRefs`]), the repo's full
+//! branch/tag lists.
 //!
 //! Each node's `user_data` is verbatim the Zarr v3 `zarr.json` document that
 //! the writer stored, so the node conversion here reuses [`crate::zarr`]'s
@@ -38,12 +41,16 @@ pub fn is_icechunk_repo(path: &Path) -> bool {
 }
 
 #[cfg(feature = "icechunk")]
-pub use enabled::summarize_icechunk;
+pub use enabled::{
+    IcechunkRef, ListRefs, ParseIcechunkRefError, summarize_icechunk, summarize_icechunk_at,
+};
 
 #[cfg(feature = "icechunk")]
 mod enabled {
     use std::collections::BTreeMap;
+    use std::fmt;
     use std::path::Path;
+    use std::str::FromStr;
 
     use icechunk::Repository;
     use icechunk::format::snapshot::NodeSnapshot;
@@ -55,12 +62,182 @@ mod enabled {
     use crate::model::{DatasetSummary, GroupSummary, SnapshotInfo, SourceFormat, VersionInfo};
     use crate::zarr::build_v3_tree;
 
-    /// The branch previewed for a repo. Icechunk has no configurable default
-    /// branch (unlike git), so `main` is the only tip worth resolving.
+    /// The branch previewed for a repo when no [`IcechunkRef`] is given.
+    /// Icechunk has no configurable default branch (unlike git), so `main`
+    /// is the only tip worth resolving by default.
     const DEFAULT_BRANCH: &str = "main";
 
-    /// Maximum number of snapshots (including the tip) walked back from
-    /// `main`'s tip when building [`VersionInfo::ancestry`].
+    /// A ref into an Icechunk repo's version history that a caller wants to
+    /// preview: a branch tip, an immutable tag, or a specific snapshot.
+    ///
+    /// Mirrors the subset of [`IceVersionInfo`] meaningful for read-only
+    /// browsing; the `AsOf` (browse-by-timestamp) variant is omitted since
+    /// nothing in ndlook exposes that yet, and adding it later needs no
+    /// changes to the other variants.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum IcechunkRef {
+        Branch(String),
+        Tag(String),
+        Snapshot(String),
+    }
+
+    impl IcechunkRef {
+        /// Short label for [`VersionInfo::ref_kind`] and error messages,
+        /// and the `kind` half of the `"kind:value"` spelling that
+        /// [`IcechunkRef`]'s [`fmt::Display`] writes and its [`FromStr`]
+        /// reads. Those three impls sit together below precisely because
+        /// these strings have to agree.
+        pub fn kind(&self) -> &'static str {
+            match self {
+                IcechunkRef::Branch(_) => "branch",
+                IcechunkRef::Tag(_) => "tag",
+                IcechunkRef::Snapshot(_) => "snapshot",
+            }
+        }
+
+        /// The name as the caller spelled it: the branch/tag name, or the
+        /// raw snapshot id string.
+        ///
+        /// Note this is *not* what fills [`VersionInfo::branch`] — see
+        /// [`IcechunkRef::resolve`], which canonicalizes a snapshot id.
+        fn display_name(&self) -> &str {
+            match self {
+                IcechunkRef::Branch(name)
+                | IcechunkRef::Tag(name)
+                | IcechunkRef::Snapshot(name) => name,
+            }
+        }
+
+        /// Converts to the Icechunk crate's own ref type, paired with the
+        /// name to display for it — the value that fills
+        /// [`VersionInfo::branch`] even when the ref isn't actually a
+        /// branch (see that field's doc comment for why it keeps its
+        /// original name).
+        ///
+        /// A `Snapshot`'s id string is parsed into a real [`SnapshotId`]
+        /// here, rather than left for `Repository::resolve_version` to
+        /// reject, for two reasons. A malformed id produces a message
+        /// pointing at the id itself instead of an opaque "not found"
+        /// further down the pipeline; and the parsed id's canonical
+        /// spelling becomes the display name. That second part matters
+        /// because Crockford base32 is case-insensitive: `snapshot:abc…`
+        /// resolves perfectly well, but echoing the caller's lowercase back
+        /// would not match the uppercase ids in [`VersionInfo::ancestry`],
+        /// so a UI trying to highlight "the ref you are viewing" in the
+        /// history list would find nothing.
+        fn resolve(&self, path: &Path) -> Result<(IceVersionInfo, String), MetaError> {
+            match self {
+                IcechunkRef::Branch(name) => {
+                    Ok((IceVersionInfo::BranchTipRef(name.clone()), name.clone()))
+                }
+                IcechunkRef::Tag(name) => Ok((IceVersionInfo::TagRef(name.clone()), name.clone())),
+                IcechunkRef::Snapshot(id) => {
+                    let snapshot_id = SnapshotId::try_from(id.as_str()).map_err(|err| {
+                        invalid(path, format!("invalid snapshot id \"{id}\": {err}"))
+                    })?;
+                    let canonical = snapshot_id.to_string();
+                    Ok((IceVersionInfo::SnapshotId(snapshot_id), canonical))
+                }
+            }
+        }
+    }
+
+    /// The `"kind:value"` spelling ([`IcechunkRef::kind`] plus the ref's
+    /// name, e.g. `branch:main`, `tag:v1`, `snapshot:ABC123`) used wherever
+    /// a ref has to travel as a single string — notably the `icechunk_ref`
+    /// argument of `ndlook-ffi`'s `ndlook_summarize_json`.
+    impl fmt::Display for IcechunkRef {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}:{}", self.kind(), self.display_name())
+        }
+    }
+
+    /// Why a string wasn't a valid `"kind:value"` ref.
+    ///
+    /// The [`fmt::Display`] message is user-facing as-is: `ndlook-ffi`
+    /// puts it straight into the error envelope it hands back to the app.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct ParseIcechunkRefError {
+        /// Quoted back to the user so the message names what was rejected.
+        raw: String,
+        problem: RefProblem,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum RefProblem {
+        /// No `:` at all, so there is no kind to speak of.
+        MissingSeparator,
+        /// A known kind, but nothing after the `:`.
+        EmptyValue,
+        /// Something before the `:` that isn't one of [`IcechunkRef::kind`]'s
+        /// three spellings.
+        UnknownKind(String),
+    }
+
+    impl fmt::Display for ParseIcechunkRefError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let Self { raw, problem } = self;
+            write!(f, "invalid Icechunk ref \"{raw}\": ")?;
+            match problem {
+                RefProblem::MissingSeparator => write!(
+                    f,
+                    "expected \"kind:value\" (kind one of branch, tag, snapshot)"
+                ),
+                RefProblem::EmptyValue => write!(f, "value must not be empty"),
+                RefProblem::UnknownKind(kind) => write!(
+                    f,
+                    "unknown kind \"{kind}\" (expected branch, tag, or snapshot)"
+                ),
+            }
+        }
+    }
+
+    impl std::error::Error for ParseIcechunkRefError {}
+
+    /// The exact inverse of [`IcechunkRef`]'s [`fmt::Display`]: the kind
+    /// strings matched here are [`IcechunkRef::kind`]'s, and nothing else
+    /// in the workspace re-spells them.
+    impl FromStr for IcechunkRef {
+        type Err = ParseIcechunkRefError;
+
+        fn from_str(raw: &str) -> Result<Self, Self::Err> {
+            let reject = |problem| ParseIcechunkRefError {
+                raw: raw.to_owned(),
+                problem,
+            };
+            let (kind, value) = raw
+                .split_once(':')
+                .ok_or_else(|| reject(RefProblem::MissingSeparator))?;
+            if value.is_empty() {
+                return Err(reject(RefProblem::EmptyValue));
+            }
+            match kind {
+                "branch" => Ok(IcechunkRef::Branch(value.to_owned())),
+                "tag" => Ok(IcechunkRef::Tag(value.to_owned())),
+                "snapshot" => Ok(IcechunkRef::Snapshot(value.to_owned())),
+                other => Err(reject(RefProblem::UnknownKind(other.to_owned()))),
+            }
+        }
+    }
+
+    /// Whether a summarize call should also collect the repo's full branch
+    /// and tag lists into [`VersionInfo::branches`]/[`VersionInfo::tags`].
+    ///
+    /// Listing is two extra store round-trips that only pay off for a
+    /// caller that actually shows the lists. The Quick Look preview never
+    /// does — it renders one ref's tree and history — so it asks for `No`,
+    /// which also means a repo whose ref store can't be enumerated (a
+    /// permission problem, a partially synced copy) still previews instead
+    /// of failing outright. The app's JSON path, which populates a ref
+    /// picker, asks for `Yes`.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum ListRefs {
+        Yes,
+        No,
+    }
+
+    /// Maximum number of snapshots (including the tip) walked back from the
+    /// resolved ref's tip when building [`VersionInfo::ancestry`].
     ///
     /// Each step is a `lookup_snapshot`, and an Icechunk snapshot file
     /// carries the metadata of *every* node in the hierarchy, so a repo with
@@ -75,13 +252,29 @@ mod enabled {
     /// Summarize the Zarr hierarchy at the tip of `main` in the Icechunk repo
     /// rooted at `path`, together with its commit history.
     ///
+    /// A thin wrapper over [`summarize_icechunk_at`] with `reference: None`
+    /// and [`ListRefs::No`], kept so existing callers previewing the default
+    /// branch don't need to name either.
+    pub fn summarize_icechunk(path: &Path) -> Result<DatasetSummary, MetaError> {
+        summarize_icechunk_at(path, None, ListRefs::No)
+    }
+
+    /// Summarize the Zarr hierarchy at `reference` (or `main`'s tip when
+    /// `reference` is `None`) in the Icechunk repo rooted at `path`,
+    /// together with its commit history and — when `list_refs` is
+    /// [`ListRefs::Yes`] — the repo's full branch/tag lists.
+    ///
     /// The repo is opened read-only against local-filesystem storage; no
     /// network backends are contacted and no chunk data is read.
     ///
     /// The whole async pipeline is driven by a private current-thread Tokio
     /// runtime created per call, so this stays an ordinary blocking function
     /// callable straight from the FFI layer.
-    pub fn summarize_icechunk(path: &Path) -> Result<DatasetSummary, MetaError> {
+    pub fn summarize_icechunk_at(
+        path: &Path,
+        reference: Option<&IcechunkRef>,
+        list_refs: ListRefs,
+    ) -> Result<DatasetSummary, MetaError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -89,10 +282,14 @@ mod enabled {
                 path: path.to_path_buf(),
                 source,
             })?;
-        runtime.block_on(summarize(path))
+        runtime.block_on(summarize(path, reference, list_refs))
     }
 
-    async fn summarize(path: &Path) -> Result<DatasetSummary, MetaError> {
+    async fn summarize(
+        path: &Path,
+        reference: Option<&IcechunkRef>,
+        list_refs: ListRefs,
+    ) -> Result<DatasetSummary, MetaError> {
         let storage = icechunk::new_local_filesystem_storage(path)
             .await
             .map_err(|err| invalid(path, format!("cannot open Icechunk storage: {err}")))?;
@@ -100,10 +297,22 @@ mod enabled {
             .await
             .map_err(|err| invalid(path, format!("cannot open Icechunk repository: {err}")))?;
 
-        let tip = repo.lookup_branch(DEFAULT_BRANCH).await.map_err(|err| {
+        let (branches, tags) = match list_refs {
+            ListRefs::Yes => list_branches_and_tags(&repo, path).await?,
+            ListRefs::No => (Vec::new(), Vec::new()),
+        };
+
+        let default_ref = IcechunkRef::Branch(DEFAULT_BRANCH.to_owned());
+        let reference = reference.unwrap_or(&default_ref);
+        let (ice_version, display_name) = reference.resolve(path)?;
+
+        let tip = repo.resolve_version(&ice_version).await.map_err(|err| {
             invalid(
                 path,
-                format!("cannot resolve branch \"{DEFAULT_BRANCH}\": {err}"),
+                format!(
+                    "cannot resolve {} \"{display_name}\": {err}",
+                    reference.kind()
+                ),
             )
         })?;
 
@@ -127,11 +336,41 @@ mod enabled {
             format: SourceFormat::Icechunk,
             root,
             version_info: Some(VersionInfo {
-                branch: DEFAULT_BRANCH.to_owned(),
+                branch: display_name,
+                ref_kind: Some(reference.kind().to_owned()),
+                branches,
+                tags,
                 ancestry,
                 truncated,
             }),
         })
+    }
+
+    /// Collects the repo's branch and tag names, each sorted by name — see
+    /// [`ListRefs`] for when this runs at all.
+    ///
+    /// The two listings are independent store reads with no ordering
+    /// between them, so `try_join!` polls both on the same current-thread
+    /// runtime and the second doesn't sit behind the first's I/O.
+    async fn list_branches_and_tags(
+        repo: &Repository,
+        path: &Path,
+    ) -> Result<(Vec<String>, Vec<String>), MetaError> {
+        let branches = async {
+            repo.list_branches()
+                .await
+                .map_err(|err| invalid(path, format!("cannot list branches: {err}")))
+        };
+        let tags = async {
+            repo.list_tags()
+                .await
+                .map_err(|err| invalid(path, format!("cannot list tags: {err}")))
+        };
+        let (branches, tags) = tokio::try_join!(branches, tags)?;
+
+        // `BTreeSet` already yields names in sorted order, matching
+        // `VersionInfo::branches`/`tags`'s documented ordering.
+        Ok((branches.into_iter().collect(), tags.into_iter().collect()))
     }
 
     /// Walks the parent chain from `tip` back to the repo's initial
@@ -212,6 +451,63 @@ mod enabled {
         MetaError::Icechunk {
             path: path.to_path_buf(),
             message,
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The guard against `kind()`, `Display` and `FromStr` drifting
+        /// apart: whatever a ref prints as must parse back into the same
+        /// ref, for every variant.
+        #[test]
+        fn every_ref_round_trips_through_its_string_form() {
+            for reference in [
+                IcechunkRef::Branch("main".to_owned()),
+                IcechunkRef::Tag("v1".to_owned()),
+                IcechunkRef::Snapshot("ABC123".to_owned()),
+            ] {
+                let text = reference.to_string();
+                assert!(
+                    text.starts_with(&format!("{}:", reference.kind())),
+                    "the printed form should lead with kind(), got {text}"
+                );
+                assert_eq!(text.parse::<IcechunkRef>(), Ok(reference));
+            }
+        }
+
+        /// A value containing a colon (legal in a branch name) belongs to
+        /// the value, not to a second split.
+        #[test]
+        fn only_the_first_colon_separates_kind_from_value() {
+            assert_eq!(
+                "branch:feature:2".parse::<IcechunkRef>(),
+                Ok(IcechunkRef::Branch("feature:2".to_owned()))
+            );
+        }
+
+        #[test]
+        fn malformed_refs_explain_themselves() {
+            let no_separator = "bogus".parse::<IcechunkRef>().expect_err("no colon");
+            assert_eq!(
+                no_separator.to_string(),
+                "invalid Icechunk ref \"bogus\": expected \"kind:value\" \
+                 (kind one of branch, tag, snapshot)"
+            );
+
+            let empty = "tag:".parse::<IcechunkRef>().expect_err("no value");
+            assert_eq!(
+                empty.to_string(),
+                "invalid Icechunk ref \"tag:\": value must not be empty"
+            );
+
+            let unknown = "commit:abc".parse::<IcechunkRef>().expect_err("bad kind");
+            assert_eq!(
+                unknown.to_string(),
+                "invalid Icechunk ref \"commit:abc\": unknown kind \"commit\" \
+                 (expected branch, tag, or snapshot)"
+            );
         }
     }
 }

@@ -36,11 +36,15 @@ expression: summary
         "attrs": [
           [
             "units",
-            "days since 2024-01-01 00:00:00"
+            {
+              "Text": "days since 2024-01-01 00:00:00"
+            }
           ],
           [
             "calendar",
-            "proleptic_gregorian"
+            {
+              "Text": "proleptic_gregorian"
+            }
           ]
         ],
         "preview": "0 1 2 3"
@@ -57,15 +61,21 @@ expression: summary
         "attrs": [
           [
             "_FillValue",
-            null
+            {
+              "Float": "NaN"
+            }
           ],
           [
             "units",
-            "km"
+            {
+              "Text": "km"
+            }
           ],
           [
             "long_name",
-            "Cross-shore distance"
+            {
+              "Text": "Cross-shore distance"
+            }
           ]
         ],
         "preview": "-10.0 0.0 10.0"
@@ -88,15 +98,21 @@ expression: summary
         "attrs": [
           [
             "_FillValue",
-            null
+            {
+              "Float": "NaN"
+            }
           ],
           [
             "units",
-            "psu"
+            {
+              "Text": "psu"
+            }
           ],
           [
             "long_name",
-            "Sea Water Salinity"
+            {
+              "Text": "Sea Water Salinity"
+            }
           ]
         ]
       },
@@ -121,15 +137,21 @@ expression: summary
         "attrs": [
           [
             "_FillValue",
-            null
+            {
+              "Float": "NaN"
+            }
           ],
           [
             "units",
-            "degC"
+            {
+              "Text": "degC"
+            }
           ],
           [
             "long_name",
-            "Sea Water Temperature"
+            {
+              "Text": "Sea Water Temperature"
+            }
           ]
         ]
       }
@@ -137,15 +159,21 @@ expression: summary
     "attrs": [
       [
         "title",
-        "ndlook simple fixture"
+        {
+          "Text": "ndlook simple fixture"
+        }
       ],
       [
         "institution",
-        "NERACOOS"
+        {
+          "Text": "NERACOOS"
+        }
       ],
       [
         "conventions",
-        "CF-1.8"
+        {
+          "Text": "CF-1.8"
+        }
       ]
     ],
     "children": [
@@ -170,15 +198,21 @@ expression: summary
             "attrs": [
               [
                 "_FillValue",
-                null
+                {
+                  "Float": "NaN"
+                }
               ],
               [
                 "units",
-                "degC"
+                {
+                  "Text": "degC"
+                }
               ],
               [
                 "long_name",
-                "Sea Water Temperature"
+                {
+                  "Text": "Sea Water Temperature"
+                }
               ]
             ]
           }
@@ -186,15 +220,21 @@ expression: summary
         "attrs": [
           [
             "title",
-            "ndlook simple fixture"
+            {
+              "Text": "ndlook simple fixture"
+            }
           ],
           [
             "institution",
-            "NERACOOS"
+            {
+              "Text": "NERACOOS"
+            }
           ],
           [
             "conventions",
-            "CF-1.8"
+            {
+              "Text": "CF-1.8"
+            }
           ]
         ],
         "children": [
@@ -219,15 +259,21 @@ expression: summary
                 "attrs": [
                   [
                     "_FillValue",
-                    null
+                    {
+                      "Float": "NaN"
+                    }
                   ],
                   [
                     "units",
-                    "degC"
+                    {
+                      "Text": "degC"
+                    }
                   ],
                   [
                     "long_name",
-                    "Sea Water Temperature"
+                    {
+                      "Text": "Sea Water Temperature"
+                    }
                   ]
                 ]
               }
@@ -235,15 +281,21 @@ expression: summary
             "attrs": [
               [
                 "title",
-                "ndlook simple fixture"
+                {
+                  "Text": "ndlook simple fixture"
+                }
               ],
               [
                 "institution",
-                "NERACOOS"
+                {
+                  "Text": "NERACOOS"
+                }
               ],
               [
                 "conventions",
-                "CF-1.8"
+                {
+                  "Text": "CF-1.8"
+                }
               ]
             ],
             "children": []
@@ -271,15 +323,21 @@ expression: summary
             "attrs": [
               [
                 "_FillValue",
-                null
+                {
+                  "Float": "NaN"
+                }
               ],
               [
                 "units",
-                "psu"
+                {
+                  "Text": "psu"
+                }
               ],
               [
                 "long_name",
-                "Sea Water Salinity"
+                {
+                  "Text": "Sea Water Salinity"
+                }
               ]
             ]
           }
@@ -287,15 +345,21 @@ expression: summary
         "attrs": [
           [
             "title",
-            "ndlook simple fixture"
+            {
+              "Text": "ndlook simple fixture"
+            }
           ],
           [
             "institution",
-            "NERACOOS"
+            {
+              "Text": "NERACOOS"
+            }
           ],
           [
             "conventions",
-            "CF-1.8"
+            {
+              "Text": "CF-1.8"
+            }
           ]
         ],
         "children": []

@@ -187,6 +187,9 @@ fn versioned_dataset() -> DatasetSummary {
     ds.format = SourceFormat::Icechunk;
     ds.version_info = Some(VersionInfo {
         branch: "main".to_string(),
+        ref_kind: Some("branch".to_string()),
+        branches: vec!["main".to_string()],
+        tags: vec![],
         truncated: false,
         ancestry: vec![
             SnapshotInfo {
