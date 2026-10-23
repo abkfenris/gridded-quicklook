@@ -21,18 +21,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-compression"
-version = "0.4.50"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee19bd99b43e3691acbad4e840420a4881cea6c0b66a208125a824f8fd53f5a1"
-dependencies = [
- "compression-codecs",
- "compression-core",
- "pin-project-lite",
- "tokio",
-]
-
-[[package]]
 name = "async-recursion"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,23 +248,6 @@ checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
 dependencies = [
  "cc",
 ]
-
-[[package]]
-name = "compression-codecs"
-version = "0.4.45"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98fc98460ba0ad5317075d3632b8dfc45d0be8c4a49347c2a38272019717614a"
-dependencies = [
- "compression-core",
- "zstd",
- "zstd-safe",
-]
-
-[[package]]
-name = "compression-core"
-version = "0.4.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e8ccc4ea9f6acc32d102c0f6d471d11d913ad15f20c04de743374861fa1d414"
 
 [[package]]
 name = "console"
@@ -678,9 +649,9 @@ dependencies = [
 
 [[package]]
 name = "gribberish"
-version = "1.8.0"
+version = "1.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01c244a7d8b58ac74ebed3dda3e07a36cc7d6de7aecf8bcab2edf9c511138b35"
+checksum = "5d9f0b6ef2f2693480215528e475a1e1c22bfbdde0a257923185d8525c04f01f"
 dependencies = [
  "bitflags 2.13.1",
  "bitvec",
@@ -696,9 +667,9 @@ dependencies = [
 
 [[package]]
 name = "gribberish-macros"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "155176fb848310adaa1c3c6e5d5f7cc3e830f4fc83b6a5921f485a3e929341c3"
+checksum = "5a4d88c013d8a518e8ad8d55c424b4d605283007b16e4b18b50e05b0034448e0"
 dependencies = [
  "gribberish-types",
  "quote",
@@ -707,9 +678,9 @@ dependencies = [
 
 [[package]]
 name = "gribberish-types"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e4410172b6110b4ea4d3e859ff98fe7abf3dcb963c32d00c9f3daeaf7b8b5ba"
+checksum = "b4981a7b09866a0e5466748a5ffa310f2764054f839e83d14566f31d87e2191d"
 
 [[package]]
 name = "half"
@@ -817,11 +788,10 @@ dependencies = [
 
 [[package]]
 name = "icechunk"
-version = "2.2.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "268e3d063944e80cc1b455b4893f83217c6cc7e88d6854c62381032d43e5e985"
+checksum = "0e4cb70ed1566b2b9c0e5f6f4d09ab77746e1b4ff1ee8a7c85abc745bce4e4c7"
 dependencies = [
- "async-compression",
  "async-recursion",
  "async-stream",
  "async-trait",
@@ -838,6 +808,7 @@ dependencies = [
  "quick_cache",
  "rand",
  "regex",
+ "rlimit",
  "rmp-serde",
  "serde",
  "serde_bytes",
@@ -856,9 +827,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-arrow-object-store"
-version = "2.2.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5f03237d2d7db9d6644a39340584bf6d04c2fd00c251eafc958afc022c82f26"
+checksum = "face29f833e7f57372d7cd29659c72f439565d5fa865ab565283b9174d257948"
 dependencies = [
  "async-trait",
  "bytes",
@@ -880,9 +851,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-format"
-version = "2.2.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "abd7fca322762ecce758811d403ddf5b0da501dad80060611c2091654f46f32b"
+checksum = "14224c406f6be84bd8eba45dff14d05f4780703a4c63e14f735391050256665b"
 dependencies = [
  "base32",
  "bytes",
@@ -906,9 +877,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-storage"
-version = "2.2.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b22438b5a55ae6e2b773111e7a009fe511190456c6b6bf4e9dde00cd196f2de"
+checksum = "0e8b4d4586b55cbe3b5d6dbc22ee2993caaedb4fca61773c7ea5f4204e65fe32"
 dependencies = [
  "async-trait",
  "bytes",
@@ -916,6 +887,7 @@ dependencies = [
  "futures",
  "icechunk-types",
  "itertools 0.15.0",
+ "percent-encoding",
  "serde",
  "thiserror 2.0.21",
  "tokio",
@@ -927,9 +899,9 @@ dependencies = [
 
 [[package]]
 name = "icechunk-types"
-version = "2.2.2"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b170eca1703ff3b8076db550e06e327b89548ee203e18350e337e5fbff355ea5"
+checksum = "47ad57f704cad49b678bb505bdbdea1d0e35c431110f4f56f81afc77d911d35d"
 dependencies = [
  "serde",
  "serde_with",
@@ -1073,9 +1045,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.48.0"
+version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86f0f8fee8c926415c58d6ae43a08523a26faccb2323f5e6b644fe7dd4ef6b82"
+checksum = "b67d3d2e287e4b86c10b3f3b641033d1f89b74bdb39d05f34952e2b9a6fe21cd"
 dependencies = [
  "console",
  "once_cell",
@@ -1824,6 +1796,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "rlimit"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f35ee2729c56bb610f6dba436bf78135f728b7373bdffae2ec815b2d3eb98cc3"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "rmp"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1963,10 +1944,11 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
+ "foldhash",
  "indexmap 2.14.0",
  "itoa",
  "memchr",
@@ -2244,9 +2226,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.53.1"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "pin-project-lite",
